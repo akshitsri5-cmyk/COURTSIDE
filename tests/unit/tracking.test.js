@@ -103,3 +103,18 @@ test('low analysis rate (1 fps): a walking player is still confirmed as a track'
   for (let k = 0; k < 4; k++) { const d = { bbox: [100 + 70 * k, 200, 50, 150], score: 0.9 }; tr.update([d], k); const m = tr.active().find(x => x.det === d); if (m) confirmed = m.id; }
   assert.ok(confirmed, 'track confirmed despite zero IoU between 1-s frames');
 });
+
+test('a colour-only object (e.g. orange toy) cannot sustain a ball track beyond 1 s', () => {
+  const bt = new BallTracker(); let e;
+  bt.update([{ x: 300, y: 200, r: 10, score: 0.6, source: 'model' }], 0);       // one detector hit
+  for (let k = 1; k <= 45; k++) e = bt.update([{ x: 300, y: 200, r: 10, score: 0.8, source: 'colour' }], k / 30); // then colour only
+  assert.equal(e, null); assert.equal(bt.state, 'lost');
+});
+
+test('tracker thresholds can be lowered for COCO-SSD (person with score 0.45 becomes a track)', async () => {
+  const { GameAnalyzer } = await import('../../public/js/core/game-analyzer.js');
+  const { getRuleset } = await import('../../public/js/core/rules/rulesets.js');
+  const an = new GameAnalyzer({ ruleset: getRuleset('FIBA') }); an.setTrackerOptions({ highThresh: 0.35, newTrackThresh: 0.4 });
+  let out; for (let k = 0; k < 3; k++) out = an.processCameraFrame('c', k / 10, { persons: [{ bbox: [100, 50, 300, 400], score: 0.45 }], balls: [] });
+  assert.equal(out.tracks.length, 1);
+});

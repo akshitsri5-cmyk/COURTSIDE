@@ -10,7 +10,7 @@ import { triangulate } from './homography.js';
 
 export class BallTracker {
   constructor(opts = {}) {
-    this.o = { minDetScore: 0.25, reacquireScore: 0.4, maxCoastSec: 0.6, q: 4e5, r: 16, colourScore: 0.3, ...opts };
+    this.o = { minDetScore: 0.25, reacquireScore: 0.4, maxCoastSec: 0.6, maxColourOnlySec: 1.0, q: 4e5, r: 16, colourScore: 0.3, ...opts };
     this.kf = null; this.t = 0; this.lastSeen = -1; this.radius = 8; this.state = 'lost';
     this.history = []; // {t, u, v, r, measured, source}
     this.events = [];  // reversal events {type:'reversal', t, u, v}
@@ -62,6 +62,9 @@ export class BallTracker {
       else this.kf.update([chosen.x, chosen.y], chosen.source === 'colour' ? o.r * 4 : o.r);
       this.radius = 0.7 * this.radius + 0.3 * (chosen.r || this.radius);
       this.lastSeen = t; this.state = 'tracking'; this.coasted = 0; this.lastMeas = { x: chosen.x, y: chosen.y, t };
+      if (chosen.source !== 'colour') this.lastModelT = t;
+      // colour blobs may only bridge short detector gaps (motion blur); never sustain a track on their own
+      if (t - (this.lastModelT ?? t) > o.maxColourOnlySec) { this.state = 'lost'; this.kf = null; this.desc = null; return null; }
     } else if (this.kf && this.state !== 'lost') {
       this.coasted = t - this.lastSeen;
       this.state = this.coasted > o.maxCoastSec ? 'lost' : 'occluded';

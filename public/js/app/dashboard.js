@@ -287,7 +287,7 @@ setInterval(() => {
   }
   updateStats();
 }, 500);
-detector.load(S.settings.detector || 'auto').catch(() => { });
+detector.load(S.settings.detector || 'auto').then(k => { if (k === 'COCO-SSD') analyzer.setTrackerOptions({ highThresh: 0.35, newTrackThresh: 0.4, lowThresh: 0.15 }); }).catch(() => { });
 // periodic court-visibility check for calibrated cameras
 setInterval(() => { for (const [id, p] of S.pipelines) { const c = analyzer.camera(id).calib; if (!c || !p.last) continue; const img = p.grab(); if (img) workerCall('fit', { img, H: c.Hc2i }).then(r => p.health.noteCourtFit(r.fraction)).catch(() => { }); } }, 20000);
 

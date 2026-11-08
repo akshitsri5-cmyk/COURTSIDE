@@ -39,12 +39,14 @@ export class GameAnalyzer {
     this.rules = new RuleEngine({ cfg: ruleset, model });
     this.fouls = new FoulDetector({ cfg: ruleset, model });
     this.reversalCursor = new Map(); this.lastTick = null; this.tickTimes = []; this.lastTeamUpdate = 0; this.prevPossTeam = null;
-    this.lastState = null;
+    this.lastState = null; this.trackerOpts = {};
   }
   camera(cam) {
-    if (!this.cams.has(cam)) this.cams.set(cam, { tracker: new PlayerTracker({ idPrefix: cam + '-' }), ball: new BallTracker(), calib: null, lastT: null, enabled: true });
+    if (!this.cams.has(cam)) this.cams.set(cam, { tracker: new PlayerTracker({ idPrefix: cam + '-', ...this.trackerOpts }), ball: new BallTracker(), calib: null, lastT: null, enabled: true });
     return this.cams.get(cam);
   }
+  /** Detector-specific score thresholds (COCO-SSD scores people lower than YOLO). Applies to existing cameras too. */
+  setTrackerOptions(o) { this.trackerOpts = { ...this.trackerOpts, ...o }; for (const c of this.cams.values()) Object.assign(c.tracker.o, o); }
   removeCamera(cam) { this.cams.delete(cam); }
   /**
    * Calibration: Hc2i = court(m)->image(px) homography for an image of width x height.
