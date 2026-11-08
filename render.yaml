@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: courtside
+    runtime: node
+    plan: free
+    buildCommand: npm install && npm run models
+    startCommand: npm start
+    envVars:
+      - key: DISABLE_HTTPS
+        value: "1"

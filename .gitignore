@@ -1,0 +1,7 @@
+node_modules/
+data/
+public/models/*.onnx
+public/models/*.task
+tests/fixtures/*.jpg
+tests/fixtures/*.y4m
+*.zip

@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>COURTSIDE — Multi-camera Basketball Ref</title><link rel="stylesheet" href="/css/app.css"></head>
+<body>
+<header><div class="brand">COURT<span>SIDE</span></div><div class="tag" id="matchTag">MULTI-CAMERA BASKETBALL REFEREE ASSISTANT</div></header>
+<main>
+<div class="tag">ONE COURT · MULTIPLE ANGLES · ONE GAME SESSION</div><h1>See more of<br>the game.</h1>
+<p class="intro">This device is the referee station. Pair phones by QR code, calibrate each camera to the court, then start the game. COURTSIDE tracks players and the ball, flags possible violations with video evidence, and leaves every decision to you.</p>
+<div class="top-actions">
+  <input id="matchName" class="text-input" style="max-width:220px" placeholder="Match name" value="">
+  <button class="primary" id="addLocal">＋ Camera on this device</button>
+  <select id="localCamSel" style="max-width:200px"><option value="">Default camera</option></select>
+  <button class="secondary" id="newPair">＋ Pair a phone (QR)</button>
+  <label class="tag"><input type="checkbox" id="analysisOn" checked> AI ANALYSIS</label>
+  <label class="tag">FPS <select id="fpsSel" style="width:auto"><option>5</option><option selected>10</option><option>15</option><option>20</option></select></label>
+  <label class="tag"><input type="checkbox" id="poseOn" checked> POSE</label>
+  <select id="rulesetSel" style="width:auto"><option value="FIBA">FIBA rules</option><option value="NBA">NBA court/timing</option></select>
+  <button id="newMatch" class="danger sm">New match</button>
+</div>
+<div class="layout">
+ <section class="panel">
+  <div class="panel-head"><strong>COURT VISION · CAMERA FEEDS</strong><span class="live"><i class="dot" id="globalDot"></i><span id="globalState">NO CAMERAS CONNECTED</span></span></div>
+  <div class="camera-grid" id="cameraGrid"><div class="camera-card" id="emptyCard"><div class="camera-head"><b>CAMERA 01</b><span class="camera-state">WAITING</span></div><div class="stage"><div class="placeholder">Add a camera on this device or pair a phone to begin.</div></div></div></div>
+  <div class="controls" style="padding:0 14px 14px"><button class="sm" id="flashSync">Sync check (flash)</button><span class="muted small" id="syncInfo">Timestamps: WebRTC capture/receive time, server-clock aligned.</span></div>
+ </section>
+ <aside class="side">
+  <section class="panel pad">
+   <div class="row-between"><strong class="tag">LIVE SCORE</strong><label class="tag"><input type="checkbox" id="autoScore" checked> AUTO</label></div>
+   <div class="scoreline"><div><div class="team" id="homeName">HOME</div><div class="points" id="homeScore">00</div></div><div class="versus">VS</div><div><div class="team" id="awayName">AWAY</div><div class="points" id="awayScore">00</div></div></div>
+   <div class="team-controls"><button data-team="home" data-points="1">HOME +1</button><button data-team="home" data-points="2">+2</button><button data-team="home" data-points="3">+3</button><button data-team="home" data-points="-1">−1</button></div>
+   <div class="team-controls"><button data-team="away" data-points="1">AWAY +1</button><button data-team="away" data-points="2">+2</button><button data-team="away" data-points="3">+3</button><button data-team="away" data-points="-1">−1</button></div>
+   <div class="team-controls"><button id="undoScore">Undo last</button><button id="swapTeams">Swap team colours</button></div>
+   <div class="pending" id="pendingScores"></div>
+  </section>
+  <section class="panel pad clock">
+   <div class="tag">GAME CLOCK · <span id="period">Q1</span></div><div class="time" id="clock">10:00</div><div class="shot" id="shotClock">24</div>
+   <div class="clock-actions"><button class="primary" id="clockToggle">Start</button><button id="resetShot">Shot 24</button><button id="shot14">14</button><button id="nextPeriod">Next period</button><button id="resetClock">Reset game</button></div>
+   <label class="tag" style="display:block;margin-top:8px"><input type="checkbox" id="autoClock" checked> AUTO CLOCK (stop on confirmed calls, FIBA last-2-min rule, shot-clock resets)</label>
+  </section>
+  <section class="panel pad">
+   <strong class="tag">COURT MAP · POSSESSION</strong>
+   <canvas id="courtMap" width="560" height="300" style="margin-top:8px;border-radius:8px"></canvas>
+   <div class="status-row"><span>Possession</span><b id="possState">—</b></div>
+  </section>
+  <section class="panel pad">
+   <strong class="tag">SYSTEM STATUS</strong>
+   <div class="status-row"><span>Connected cameras</span><b id="camCount">0</b></div>
+   <div class="status-row"><span>Calibrated cameras</span><b id="calCount">0</b></div>
+   <div class="status-row"><span>Players tracked (fused)</span><b id="peopleCount">—</b></div>
+   <div class="status-row"><span>Ball</span><b id="ballStatus">—</b></div>
+   <div class="status-row"><span>Detector</span><b id="detStatus">loading…</b></div>
+   <div class="status-row"><span>Pose model</span><b id="poseStatus">—</b></div>
+   <div class="status-row"><span>Analysis rate</span><b id="rateStatus">—</b></div>
+   <div class="status-row"><span>Signalling</span><b id="sigStatus">—</b></div>
+   <div class="status-row"><span>Rules engine</span><b id="rulesStatus">FIBA</b></div>
+  </section>
+ </aside>
+</div>
+<div class="lower">
+ <section class="panel">
+  <div class="panel-head"><strong>REFEREE ALERTS · REVIEW</strong><span class="live" id="alertCount">0 pending</span></div>
+  <div class="alert-list" id="alertList"><div class="pad muted small">No alerts yet. Alerts appear when the analysis finds evidence of a possible violation. None is ever applied without your decision.</div></div>
+  <div class="review" id="review" hidden></div>
+ </section>
+ <section class="panel">
+  <div class="panel-head"><strong>MANUAL FLAGS · MATCH TIMELINE</strong><button class="sm" id="exportLog">Export JSON</button></div>
+  <div class="controls" style="padding:10px 14px"><button class="sm" data-call="Possible foul">Possible foul</button><button class="sm" data-call="Out of bounds">Out of bounds</button><button class="sm" data-call="Travelling">Travelling</button><button class="sm" data-call="Double dribble">Double dribble</button><button class="sm" data-call="Timeout">Timeout</button></div>
+  <div class="timeline" id="timeline"></div>
+ </section>
+</div>
+<section class="panel pad" id="pair-panel" style="margin-top:17px">
+ <div class="row-between"><strong class="tag">PAIR A PHONE CAMERA</strong><button class="sm" id="rotateCode">New code</button></div>
+ <div class="pair-grid" style="margin-top:10px">
+  <div class="qr" id="qr"><div class="placeholder">Connecting…</div></div>
+  <div><div class="tag">SCAN WITH THE PHONE CAMERA, OR OPEN THE ADDRESS AND ENTER THE CODE</div><div class="code" id="pairCode">——————</div>
+   <div class="url" id="pairUrl"></div>
+   <label class="tag" style="display:block;margin-top:8px">ADDRESS PHONES USE <select id="baseSel" style="width:auto"></select></label>
+   <div class="message" id="hostMessage"></div>
+   <p class="muted small">Phones must open the <b>https://</b> address (camera access requires HTTPS). With the built-in self-signed certificate each phone must accept the browser warning once. See README → HTTPS.</p></div>
+ </div>
+</section>
+<div class="notice"><b>Honest capability limits:</b> detections come from general-purpose models (YOLO11n / MediaPipe Pose) that were <b>not trained on basketball footage</b>; rule decisions are transparent heuristics over tracked movement, validated only on synthetic scenes so far. Evidence scores are uncalibrated. Every alert is a suggestion for the human referee — <b>NEEDS HUMAN REVIEW</b> means the evidence was insufficient. Ask everyone for permission before filming.</div>
+<div class="fineprint">COURTSIDE · Video streams peer-to-peer (WebRTC) to this dashboard and is analysed on this device · Keep this page open during the game.</div>
+</main>
+<div class="modal" id="calibModal" hidden><div class="modal-box">
+ <div class="calib-stage"><canvas id="calibCanvas"></canvas></div>
+ <div class="calib-side">
+  <div class="row-between"><b id="calibTitle">Calibrate camera</b><button class="sm" id="calibClose">✕</button></div>
+  <p class="muted">1) Try <b>Auto-detect</b>. 2) Or select a court point below and click it on the image (≥4 points, spread out). 3) Mark each visible rim. Projected court lines must sit on the real lines before saving.</p>
+  <div class="controls" style="padding:0"><button class="primary sm" id="calibAuto">Auto-detect court lines</button><button class="sm" id="calibCompute">Compute from points</button></div>
+  <div class="controls" style="padding:0"><button class="sm" id="flipX">Flip ends</button><button class="sm" id="flipY">Flip sides</button><button class="sm" id="calibRefresh">New frame</button><button class="sm" id="clearPts">Clear points</button></div>
+  <div class="controls" style="padding:0"><button class="sm" id="rimL">Mark left rim</button><button class="sm" id="rimR">Mark right rim</button></div>
+  <div class="kp-list" id="kpList"></div>
+  <div id="calibInfo" class="muted"></div>
+  <div class="message" id="calibMsg"></div>
+  <button class="primary" id="calibSave">Save calibration</button>
+ </div>
+</div></div>
+<script type="module" src="/js/app/dashboard.js"></script>
+</body></html>

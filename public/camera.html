@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>COURTSIDE — Camera</title><link rel="stylesheet" href="/css/app.css"></head>
+<body class="camera-page">
+<header><div class="brand">COURT<span>SIDE</span></div><div class="tag">CAMERA DEVICE</div></header>
+<main class="cam-main">
+  <section class="panel pad" id="joinPanel">
+    <h2>Join a match as a camera</h2>
+    <p class="muted">Scan the QR code on the referee dashboard, or enter its 6-digit code.</p>
+    <label class="tag" for="code">PAIRING CODE</label>
+    <input id="code" class="big-input" inputmode="numeric" maxlength="6" placeholder="000000">
+    <label class="tag" for="label">CAMERA NAME</label>
+    <input id="label" class="text-input" placeholder="e.g. Left baseline" maxlength="40">
+    <label class="tag" for="camSel">CAMERA</label>
+    <select id="camSel"><option value="">Rear camera (default)</option></select>
+    <button class="primary wide" id="join">Start camera &amp; connect</button>
+    <div class="message" id="msg"></div>
+  </section>
+  <section class="panel pad" id="livePanel" hidden>
+    <div class="row-between"><b id="camName">CAMERA</b><span class="pill" id="state">CONNECTING</span></div>
+    <video id="preview" autoplay muted playsinline></video>
+    <div class="cam-stats"><span>Host: <b id="hostState">—</b></span><span>Video: <b id="vstat">—</b></span><span>Clock sync: <b id="sync">—</b></span></div>
+    <div class="controls"><button id="flip">Switch camera</button><button id="pause">Pause video</button><button id="motionBtn">Enable bump detection</button><button class="danger" id="leave">Leave match</button></div>
+    <p class="muted small">Mount the phone on a tripod, landscape, with as much of the court lines visible as possible. Keep this page open; the screen is kept awake while connected.</p>
+  </section>
+</main>
+<script type="module" src="/js/app/camera-client.js"></script>
+</body></html>
