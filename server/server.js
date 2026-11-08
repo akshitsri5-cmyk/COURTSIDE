@@ -8,6 +8,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import QRCode from 'qrcode';
+import zlib from 'node:zlib';
 import { MatchRegistry, attachPeer } from './signalling.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -72,7 +73,14 @@ export function createApp({ registry, httpsPort = HTTPS_PORT }) {
       const base = v ? path.join(ROOT, VENDOR[v]) : path.join(ROOT, 'public');
       if (!path.resolve(file).startsWith(path.resolve(base))) return json(403, { error: 'forbidden' });
       if (!fs.existsSync(file) || fs.statSync(file).isDirectory()) return json(404, { error: 'not found', path: p });
-      res.writeHead(200, { 'content-type': TYPES[path.extname(file)] || 'application/octet-stream', 'cache-control': p.startsWith('/models/') || v ? 'max-age=86400' : 'no-cache' });
+      // caching: validators on everything (304 when unchanged), long max-age for libraries/models
+      const st = fs.statSync(file), etag = `"${st.size.toString(36)}-${Math.floor(st.mtimeMs).toString(36)}"`;
+      const headers = { 'content-type': TYPES[path.extname(file)] || 'application/octet-stream', 'cache-control': p.startsWith('/models/') || v ? 'public, max-age=604800' : 'no-cache', etag, 'last-modified': st.mtime.toUTCString(), vary: 'accept-encoding' };
+      if (req.headers['if-none-match'] === etag) { res.writeHead(304, headers); return res.end(); }
+      // compress text assets (JS/CSS/HTML/JSON/SVG) — several MB less on slow hosts
+      const textual = /\.(m?js|css|html|json|svg)$/.test(file) && st.size > 1024 && /\bgzip\b/.test(req.headers['accept-encoding'] || '');
+      if (textual) { res.writeHead(200, { ...headers, 'content-encoding': 'gzip' }); return fs.createReadStream(file).pipe(zlib.createGzip({ level: 6 })).pipe(res); }
+      res.writeHead(200, { ...headers, 'content-length': st.size });
       fs.createReadStream(file).pipe(res);
     } catch (e) { json(500, { error: e.message }); }
   };

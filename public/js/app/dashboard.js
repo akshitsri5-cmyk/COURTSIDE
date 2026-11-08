@@ -91,7 +91,7 @@ $('addLocal').onclick = async () => {
 };
 function onCameraEvent(ev) {
   const c = ev.cam;
-  if (ev.type === 'added') { makeCard(c); if (c.kind === 'LOCAL') timeline(`${c.label} added (this device).`); }
+  if (ev.type === 'added') { loadDetector(); makeCard(c); if (c.kind === 'LOCAL') timeline(`${c.label} added (this device).`); }
   if (ev.type === 'removed') { S.cards.get(c.id)?.el.remove(); S.cards.delete(c.id); S.pipelines.get(c.id)?.stop(); S.pipelines.delete(c.id); analyzer.removeCamera(c.id); timeline(`${c.label} removed.`); }
   if (ev.type === 'state') { updateCard(c); if (c.state === 'live') { timeline(`${c.label} video live.`); gameRec.ensure(c).catch(e => timeline('Recording ' + c.label + ' failed: ' + e.message, 'warn')); } }
   if (ev.type === 'motion') S.pipelines.get(c.id)?.health.noteDeviceMotion(performance.now() / 1000, ev.mag);
@@ -338,7 +338,10 @@ setInterval(() => {
   }
   updateStats();
 }, 500);
-detector.load(S.settings.detector || 'auto').then(k => { if (k === 'COCO-SSD') analyzer.setTrackerOptions({ highThresh: 0.35, newTrackThresh: 0.4, lowThresh: 0.15 }); }).catch(() => { });
+// the detector (≈20 MB of model weights) loads only when the first camera appears, not on page open
+function loadDetector() { if (S.detLoading) return; S.detLoading = true; $('detStatus').textContent = 'loading model…';
+  detector.load(S.settings.detector || 'auto').then(k => { if (k === 'COCO-SSD') analyzer.setTrackerOptions({ highThresh: 0.35, newTrackThresh: 0.4, lowThresh: 0.15 }); }).catch(() => { }); }
+if (detector.status === 'not loaded') detector.status = 'loads when a camera is added';
 // periodic court-visibility check for calibrated cameras
 setInterval(() => { for (const [id, p] of S.pipelines) { const c = analyzer.camera(id).calib; if (!c || !p.last) continue; const img = p.grab(); if (img) workerCall('fit', { img, H: c.Hc2i }).then(r => p.health.noteCourtFit(r.fraction)).catch(() => { }); } }, 20000);
 
