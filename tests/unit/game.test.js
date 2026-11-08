@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { GameAnalyzer } from '../../public/js/core/game-analyzer.js';
 import { getRuleset } from '../../public/js/core/rules/rulesets.js';
-import { run } from '../helpers/scenario.js';
+import { run, Scenario, STANDARD_CAMS } from '../helpers/scenario.js';
 import * as plays from '../helpers/plays.js';
 import { RuleEngine } from '../../public/js/core/rule-engine.js';
 import { CourtModel } from '../../public/js/core/court-model.js';
@@ -130,4 +130,25 @@ test('alert manager: dedupe, referee decisions', () => {
   am.add({ id: 'A2', type: 'travelling', t: 1.5, players: ['P1'], confidence: 0.7, decision: 'pending' });
   assert.equal(am.alerts.length, 1); assert.equal(a.confidence, 0.7);
   am.decide('A1', 'confirmed', 'clear travel'); assert.equal(am.get('A1').decision, 'confirmed'); assert.throws(() => am.decide('A1', 'bogus'));
+});
+
+test('half court FIBA 3x3: shot from beyond the arc = 2 points, inside = 1; 12 s shot clock; game to 21', () => {
+  const R = getRuleset('3X3');
+  assert.equal(R.timing.shotClock, 12); assert.equal(R.winScore, 21); 
+  const run3 = (sc, t1) => run(new GameAnalyzer({ ruleset: R }), sc, { t1, fps: 30 });
+  const deep = run3(plays.jumpShotPlay({ spot: [4.8, 0.5] }), 4).actions.find(a => a.type === 'shot_result');
+  const close = run3(plays.jumpShotPlay({ spot: [7.5, 1], made: true }), 4).actions.find(a => a.type === 'shot_result');
+  assert.equal(deep.result, 'made'); assert.equal(deep.points, 2);
+  assert.equal(close.result, 'made'); assert.equal(close.points, 1);
+});
+
+test('1v1 half court: two players in IDENTICAL clothes get opposite sides (A/B) and keep them', () => {
+  const sc = new Scenario({ cameras: STANDARD_CAMS })
+    .addPlayer({ id: 'A', team: 0, state: plays.walker([[0, [6, -2]], [4, [9, 2]]]) })
+    .addPlayer({ id: 'B', team: 0, state: plays.walker([[0, [9, 3]], [4, [7, -3]]]) }); // same jersey colour
+  const an = new GameAnalyzer({ ruleset: getRuleset('1V1') }); assert.equal(getRuleset().id, '1V1', '1v1 is the default');
+  const r = run(an, sc, { t1: 4, fps: 15 });
+  const sides = {}; for (const s of r.states.slice(10)) for (const p of s.players) (sides[p.id] ||= new Set()).add(p.team);
+  const ids = Object.keys(sides); assert.equal(ids.length, 2);
+  assert.deepEqual(ids.map(i => [...sides[i]]).map(x => x.length), [1, 1], 'sides never flip'); assert.notEqual([...sides[ids[0]]][0], [...sides[ids[1]]][0]);
 });

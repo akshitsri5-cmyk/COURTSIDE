@@ -13,13 +13,15 @@ import { MatchRecorder } from '../core/match-recorder.js';
 import { FrameTimestamper, detectFlash, flashOffsets } from '../core/camera-sync.js';
 import { makeAlert } from '../core/rule-engine.js';
 import { applyH, hDepth } from '../core/homography.js';
+import { GameRecorder } from './game-recorder.js';
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const store = { get: (k, d = null) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } }, set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { } } };
 
 // ---------- state ----------
-const S = { match: store.get('cs-host'), pipelines: new Map(), cards: new Map(), selectedAlert: null, teamSwap: false, info: null, settings: store.get('cs-settings', { fps: 10, pose: true, ruleset: 'FIBA' }) };
+const S = { match: store.get('cs-host'), pipelines: new Map(), cards: new Map(), selectedAlert: null, teamSwap: false, info: null, settings: store.get('cs-settings', { fps: 10, pose: true, ruleset: '1V1' }) };
+if (!['1V1', '3X3', 'HALF23'].includes(S.settings.ruleset)) S.settings.ruleset = '1V1'; // half court only
 let ruleset = getRuleset(S.settings.ruleset), model = new CourtModel(ruleset.court);
 const clock = new GameClock(ruleset.timing);
 const score = new ScoreManager({ autoMinConfidence: ruleset.analysis.autoScoreMinConfidence });
@@ -91,7 +93,7 @@ function onCameraEvent(ev) {
   const c = ev.cam;
   if (ev.type === 'added') { makeCard(c); if (c.kind === 'LOCAL') timeline(`${c.label} added (this device).`); }
   if (ev.type === 'removed') { S.cards.get(c.id)?.el.remove(); S.cards.delete(c.id); S.pipelines.get(c.id)?.stop(); S.pipelines.delete(c.id); analyzer.removeCamera(c.id); timeline(`${c.label} removed.`); }
-  if (ev.type === 'state') { updateCard(c); if (c.state === 'live') timeline(`${c.label} video live.`); }
+  if (ev.type === 'state') { updateCard(c); if (c.state === 'live') { timeline(`${c.label} video live.`); gameRec.ensure(c).catch(e => timeline('Recording ' + c.label + ' failed: ' + e.message, 'warn')); } }
   if (ev.type === 'motion') S.pipelines.get(c.id)?.health.noteDeviceMotion(performance.now() / 1000, ev.mag);
   if (ev.type === 'stats') { timestamper.setStats(c.id, c.stats); S.pipelines.get(c.id)?.health.noteNetwork(c.stats); }
   if (ev.type === 'ack' && !ev.ok) timeline(`${c.label}: "${ev.cmd}" not supported (${ev.error})`, 'warn');
@@ -147,7 +149,7 @@ setInterval(() => {
 setInterval(() => { clock.tick(); }, 50);
 setInterval(() => cm?.pollStats(), 2000);
 
-function teamName(team) { const side = score.sideOf(team); return side ? side.toUpperCase() : 'team ?'; }
+function teamName(team) { const side = score.sideOf(team); return side ? (ruleset.sideNames?.[side] || side.toUpperCase()) : 'side ?'; }
 function onAction(a) {
   if (a.type === 'shot') timeline(`Shot attempt by ${a.player} (${a.freeThrow ? 'free throw' : a.points + 'PT' + (a.pointsUncertain ? '?' : '')}) — ${a.reasons.join('; ')}`, 'action');
   if (a.type === 'shot_result') {
@@ -169,6 +171,12 @@ clock.on(e => {
 function addAlert(al) {
   al.gameClock = fmtClock(); al.period = clock.period;
   const a = alerts.add(al); if (a !== al) return; // merged into an existing alert
+  if ($('autoCall').checked && a.status === 'flagged') { // evidence met the threshold: call it now, referee may overturn
+    alerts.decide(a.id, 'confirmed', 'auto-called by COURTSIDE', 'auto'); a.autoCalled = true;
+    timeline(`AUTO-CALL: ${a.label} ${(a.players || []).join(', ')} (evidence ${a.confidence.toFixed(2)})`, 'decision');
+    if ($('autoClock').checked) clock.onConfirmedWhistle(`${a.label} auto-called`);
+    renderFouls();
+  }
   timeline(`ALERT ${a.label} [${a.status === 'flagged' ? 'FLAGGED' : 'NEEDS HUMAN REVIEW'}] ${(a.players || []).join(', ')}`, 'alert');
   const wait = Math.max(0, (a.tEnd ?? a.t + 1) - serverNowMs() / 1000 + LATENCY) * 1000 + 400;
   setTimeout(() => { a.clip = recorder.captureClip(a.id, a.tStart ?? a.t - 3, a.tEnd ?? a.t + 1, null); if (S.selectedAlert === a.id) renderReview(); }, wait);
@@ -187,7 +195,7 @@ function renderReview() {
    <div class="meta"><span>Time</span><b>Q${a.period} ${a.gameClock} (match t=${a.t.toFixed(2)} s)</b><span>Player(s)</span><b>${esc((a.players || []).join(', ') || 'unknown')}${a.fouler ? ' · fouler ' + esc(a.fouler) : ''}</b><span>Team</span><b>${a.team === null || a.team === undefined ? 'unknown' : teamName(a.team)}</b><span>Evidence score</span><b>${a.confidence.toFixed(2)} <span class="muted small">(heuristic, uncalibrated)</span></b><span>Cameras</span><b>${esc((a.cams || []).join(', ') || '—')}</b><span>Decision</span><b>${a.decision}${a.note ? ' — ' + esc(a.note) : ''}</b></div>
    <ul>${(a.reasons || []).map(r => `<li>${esc(r)}</li>`).join('')}</ul>
    ${cams.length ? `<div class="clip"><canvas id="clipCanvas" width="480" height="270"></canvas></div><div class="clip-bar"><select id="clipCam">${cams.map(c => `<option>${esc(c)}</option>`).join('')}</select><button class="sm" id="clipPlay">▶ Play</button><input type="range" id="clipPos" min="0" max="1000" value="0"><button class="sm" id="clipSave">Save WebM</button></div>` : `<p class="muted small">${a.clip ? 'No frames recorded for this period (analysis was off or no camera).' : 'Video evidence is being collected…'}</p>`}
-   <div class="controls" style="padding:0"><button class="primary" id="decConfirm">Confirm</button><button class="danger" id="decReject">Reject</button><button class="secondary" id="decReview">Review later</button></div>`;
+   <div class="controls" style="padding:0"><button class="primary" id="decConfirm">Confirm</button><button class="danger" id="decReject">${a.autoCalled ? 'Overturn' : 'Reject'}</button><button class="secondary" id="decReview">Review later</button></div>`;
   $('decConfirm').onclick = () => decide(a, 'confirmed'); $('decReject').onclick = () => decide(a, 'rejected'); $('decReview').onclick = () => decide(a, 'review');
   if (cams.length) clipPlayer(a);
 }
@@ -195,7 +203,7 @@ function decide(a, d) {
   const note = d === 'rejected' ? (prompt('Reason for rejecting (optional):') || '') : '';
   alerts.decide(a.id, d, note); timeline(`Referee ${d.toUpperCase()}: ${a.label} ${(a.players || []).join(', ')}${note ? ' — ' + note : ''}`, 'decision');
   if (d === 'confirmed' && $('autoClock').checked) clock.onConfirmedWhistle(`${a.label} confirmed`);
-  renderAlerts(); renderReview(); saveLog();
+  renderAlerts(); renderReview(); renderFouls(); saveLog();
 }
 function clipPlayer(a) {
   const cv = $('clipCanvas'), x = cv.getContext('2d'); let frames = [], idx = 0, playing = false, timer = null; const imgs = new Map();
@@ -214,7 +222,18 @@ function clipPlayer(a) {
 }
 
 // ---------- score ----------
+const FOUL_TYPES = ['personal_foul', 'shooting_foul', 'blocking_foul', 'charging_foul', 'illegal_screen'];
+function renderFouls() {
+  const n = { home: 0, away: 0 }; for (const a of alerts.alerts) if (FOUL_TYPES.includes(a.type) && a.decision === 'confirmed') { const sd = score.sideOf(a.team); if (sd) n[sd]++; }
+  $('foulLine').textContent = `FOULS · ${SIDE.home} ${n.home} · ${SIDE.away} ${n.away}`;
+}
+function checkWin() {
+  const w = ruleset.winScore; if (!w || S.gameOver) return;
+  const side = score.score.home >= w ? 'home' : score.score.away >= w ? 'away' : null; if (!side) return;
+  S.gameOver = true; clock.pause(`${side.toUpperCase()} reached ${w}`); timeline(`GAME OVER — ${side.toUpperCase()} wins ${score.score[side]}–${score.score[side === 'home' ? 'away' : 'home']} (first to ${w}).`, 'score');
+}
 function renderScore() {
+  checkWin();
   $('homeScore').textContent = String(score.score.home).padStart(2, '0'); $('awayScore').textContent = String(score.score.away).padStart(2, '0');
   $('pendingScores').innerHTML = score.pending.map(p => `<div class="pending-item"><b>Confirm basket?</b> ${esc(p.player || '')} · ${p.side ? p.side.toUpperCase() : 'team ?'} · ${p.points}PT${p.pointsUncertain ? '?' : ''}<br><span class="muted">${esc(p.pendingReasons.join('; '))}</span><div class="row">${[1, 2, 3].map(n => `<button class="sm" data-s="${p.shotId}" data-p="${n}" data-side="home">HOME +${n}</button>`).join('')}${[1, 2, 3].map(n => `<button class="sm" data-s="${p.shotId}" data-p="${n}" data-side="away">AWAY +${n}</button>`).join('')}<button class="sm danger" data-s="${p.shotId}" data-p="0">No basket</button></div></div>`).join('');
   $('pendingScores').querySelectorAll('button').forEach(b => b.onclick = () => { const e = score.resolvePending(b.dataset.s, { points: +b.dataset.p, side: b.dataset.side }); timeline(e ? `+${e.points} ${e.side.toUpperCase()} (confirmed by referee)` : 'Basket rejected by referee', 'score'); if (e) clock.onMadeBasket(); renderScore(); });
@@ -235,12 +254,35 @@ function logPayload() { return { match: S.match && { id: S.match.matchId, name: 
 function saveLog() { if (S.match) fetch(`/api/matches/${S.match.matchId}/log`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-host-token': S.match.hostToken }, body: JSON.stringify(logPayload()) }).catch(() => { }); }
 setInterval(saveLog, 15000);
 
+// ---------- game recording ----------
+const gameRec = new GameRecorder();
+$('locText').value = S.settings.location || ''; $('locText').onchange = e => { S.settings.location = e.target.value; saveSettings(); };
+$('locGps').onclick = () => { if (!navigator.geolocation) { $('locInfo').textContent = 'GPS not available'; return; } $('locInfo').textContent = 'locating…';
+  navigator.geolocation.getCurrentPosition(p => { S.gps = { lat: +p.coords.latitude.toFixed(6), lon: +p.coords.longitude.toFixed(6), accuracyM: Math.round(p.coords.accuracy) }; $('locInfo').textContent = `${S.gps.lat}, ${S.gps.lon} (±${S.gps.accuracyM} m)`; },
+    e => { $('locInfo').textContent = 'GPS denied: ' + e.message; }, { enableHighAccuracy: true, timeout: 15000 }); };
+$('recBtn').onclick = async () => {
+  if (!gameRec.active) {
+    const cams = [...cm.cams.values()].filter(c => c.state === 'live'); if (!cams.length) { $('recStatus').textContent = 'no live camera to record'; return; }
+    try { await gameRec.start(cams, { matchId: S.match?.matchId, matchName: S.match?.name || $('matchName').value || 'Match', location: { text: $('locText').value || null, ...(S.gps || {}) }, ruleset: ruleset.name }); }
+    catch (e) { $('recStatus').textContent = 'could not start: ' + e.message; return; }
+    $('recBtn').textContent = '■ Stop recording'; timeline(`Recording started (${gameRec.mode === 'disk' ? 'saving to the chosen folder' : 'in memory, downloads when stopped'}) — ${cams.length} camera(s).`);
+  } else {
+    $('recBtn').disabled = true; $('recStatus').textContent = 'saving…';
+    const files = await gameRec.stop({ finalScore: { ...score.score }, scoreHistory: score.history, clock: clock.snapshot(), alerts: alerts.alerts.map(({ clip, ...a }) => a), events: recorder.events.filter(e => e.wall >= gameRec.info.startedAt) });
+    $('recBtn').disabled = false; $('recBtn').textContent = '● Record game'; $('recStatus').textContent = 'saved ' + files.length + ' file(s)'; timeline('Recording saved: ' + files.join(', '));
+  }
+};
+setInterval(() => { if (gameRec.active) { const s = gameRec.elapsedSec(); $('recStatus').textContent = `● REC ${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')} · ${gameRec.segments.filter(x => !x.endedAt).length} camera(s) · ${(gameRec.segments.reduce((a, x) => a + x.bytes, 0) / 1e6).toFixed(1)} MB`; } }, 1000);
+
 // ---------- settings ----------
 const saveSettings = () => store.set('cs-settings', S.settings);
 $('fpsSel').onchange = e => { S.settings.fps = +e.target.value; saveSettings(); };
 $('poseOn').onchange = e => { S.settings.pose = e.target.checked; saveSettings(); };
 $('rulesetSel').onchange = e => { S.settings.ruleset = e.target.value; saveSettings(); if (confirm('Reload to apply the ' + e.target.value + ' ruleset?')) location.reload(); };
 $('rulesStatus').textContent = ruleset.name;
+const SIDE = ruleset.sideNames || { home: 'HOME', away: 'AWAY' }; // 1v1: PLAYER A / PLAYER B
+$('homeName').textContent = SIDE.home; $('awayName').textContent = SIDE.away;
+document.querySelectorAll('[data-team]').forEach(b => { if (+b.dataset.points > 0 && b.textContent.includes(b.dataset.team.toUpperCase())) b.textContent = `${SIDE[b.dataset.team].replace('PLAYER ', '')} +${b.dataset.points}`; });
 $('detSel').onchange = e => { S.settings.detector = e.target.value; saveSettings(); location.reload(); };
 
 // ---------- drawing ----------
@@ -385,4 +427,4 @@ $('calibSave').onclick = async () => {
   $('calibModal').hidden = true; updateStats();
 };
 renderScore();
-window.courtside = { analyzer, clock, score, alerts, recorder, sig, addAlert, get cm() { return cm; }, S, timestamper };
+window.courtside = { analyzer, clock, score, alerts, recorder, gameRec, sig, addAlert, get cm() { return cm; }, S, timestamper };

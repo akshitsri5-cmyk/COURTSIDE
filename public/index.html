@@ -17,9 +17,19 @@
   <label class="tag">FPS <select id="fpsSel" style="width:auto"><option>5</option><option selected>10</option><option>15</option><option>20</option></select></label>
   <label class="tag"><input type="checkbox" id="poseOn" checked> POSE</label>
   <select id="detSel" style="width:auto" title="Person/ball detector"><option value="auto">Detector: COCO-SSD (fast, default)</option><option value="yolo">YOLO11n CPU (accurate, slow)</option><option value="yolo-gpu">YOLO11n WebGPU (experimental)</option></select>
-  <select id="rulesetSel" style="width:auto"><option value="FIBA">FIBA rules</option><option value="NBA">NBA court/timing</option></select>
+  <select id="rulesetSel" style="width:auto"><option value="1V1">1v1 half court (1 &amp; 2 pts, to 11)</option><option value="3X3">Half court: FIBA 3x3 (1 &amp; 2 pts, to 21)</option><option value="HALF23">Half court: 2 &amp; 3 pts</option></select>
+  <label class="tag" title="Call fouls/violations automatically when the evidence meets the threshold (referee can overturn)"><input type="checkbox" id="autoCall" checked> AUTO-CALL</label>
   <button id="newMatch" class="danger sm">New match</button>
 </div>
+<section class="panel pad" id="rec-panel" style="margin-bottom:17px">
+ <div class="row-between"><strong class="tag">GAME RECORDING · ALL CAMERA ANGLES</strong><span class="live" id="recStatus">not recording</span></div>
+ <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px">
+  <input id="locText" class="text-input" style="max-width:320px" placeholder="Location (e.g. DPS court, Noida)">
+  <button class="sm" id="locGps">📍 Use GPS</button><span class="muted small" id="locInfo"></span>
+  <button class="primary" id="recBtn">● Record game</button>
+ </div>
+ <p class="muted small" style="margin:8px 0 0">Saves one video per camera plus a match-info file (match, date, start/end time, location, score, calls). In Chrome/Edge you pick a folder once and video is written straight to disk.</p>
+</section>
 <div class="layout">
  <section class="panel">
   <div class="panel-head"><strong>COURT VISION · CAMERA FEEDS</strong><span class="live"><i class="dot" id="globalDot"></i><span id="globalState">NO CAMERAS CONNECTED</span></span></div>
@@ -32,6 +42,7 @@
    <div class="scoreline"><div><div class="team" id="homeName">HOME</div><div class="points" id="homeScore">00</div></div><div class="versus">VS</div><div><div class="team" id="awayName">AWAY</div><div class="points" id="awayScore">00</div></div></div>
    <div class="team-controls"><button data-team="home" data-points="1">HOME +1</button><button data-team="home" data-points="2">+2</button><button data-team="home" data-points="3">+3</button><button data-team="home" data-points="-1">−1</button></div>
    <div class="team-controls"><button data-team="away" data-points="1">AWAY +1</button><button data-team="away" data-points="2">+2</button><button data-team="away" data-points="3">+3</button><button data-team="away" data-points="-1">−1</button></div>
+   <div class="team" id="foulLine" style="text-align:center;margin-top:6px">TEAM FOULS · HOME 0 · AWAY 0</div>
    <div class="team-controls"><button id="undoScore">Undo last</button><button id="swapTeams">Swap team colours</button></div>
    <div class="pending" id="pendingScores"></div>
   </section>

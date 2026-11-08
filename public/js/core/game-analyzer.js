@@ -35,7 +35,7 @@ export class GameAnalyzer {
     this.ballFusion = new BallFusion();
     this.feet = new Map();        // `${pid}@${cam}` -> FootContactAnalyzer
     this.possession = new PossessionEstimator(ruleset.analysis);
-    this.actions = new ActionRecognizer({ cfg: ruleset.analysis, model, getTakeoff: (p, t) => this.getTakeoff(p, t), isClockRunning: () => this.clock ? this.clock.running : true });
+    this.actions = new ActionRecognizer({ cfg: ruleset.analysis, scoring: ruleset.scoring, model, getTakeoff: (p, t) => this.getTakeoff(p, t), isClockRunning: () => this.clock ? this.clock.running : true });
     this.rules = new RuleEngine({ cfg: ruleset, model });
     this.fouls = new FoulDetector({ cfg: ruleset, model });
     this.reversalCursor = new Map(); this.lastTick = null; this.tickTimes = []; this.lastTeamUpdate = 0; this.prevPossTeam = null;
@@ -105,7 +105,8 @@ export class GameAnalyzer {
       }
     }
     const globals = this.fusion.update(obs, t, this.model);
-    if (t - this.lastTeamUpdate > 2) { this.fusion.updateTeams(); this.lastTeamUpdate = t; }
+    if (this.cfg.oneOnOne) this.assignOneOnOneSides(t);
+    else if (t - this.lastTeamUpdate > 2) { this.fusion.updateTeams(); this.lastTeamUpdate = t; }
     const active = this.fusion.active(t);
 
     // ---- 2. per-player views + foot events (primary camera = best foot visibility) ----
@@ -159,6 +160,20 @@ export class GameAnalyzer {
     }
     this.lastState = { t, players, ball, poss, actions, alerts: [...ruleAlerts, ...foulAlerts], footEvents, globals: globals.length, info: this.rules.info.splice(0) };
     return this.lastState;
+  }
+  /**
+   * 1v1: each player is their own side. Clothing may be identical, so sides follow player identity:
+   * the first player tracked becomes side 0 (Player A), the other side 1. A re-identified player keeps the
+   * side; a new ID (player lost too long) takes whichever side is not currently on court.
+   */
+  assignOneOnOneSides(t) {
+    const act = this.fusion.active(t).filter(g => !g.isReferee).sort((a, b) => a.created - b.created).slice(0, 2);
+    for (const g of act) {
+      if (g.team === 0 || g.team === 1) continue;
+      const other = act.find(o => o !== g && (o.team === 0 || o.team === 1));
+      g.team = other ? 1 - other.team : (this.lastSideSeen?.[0] && !this.lastSideSeen?.[1] ? 1 : 0);
+    }
+    this.lastSideSeen = { 0: act.some(g => g.team === 0), 1: act.some(g => g.team === 1) };
   }
   analysisFps() { const T = this.tickTimes; return T.length > 2 ? (T.length - 1) / (T[T.length - 1] - T[0]) : 0; }
 }

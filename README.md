@@ -39,6 +39,15 @@ TURN_USERNAME=your-user TURN_CREDENTIAL=your-secret npm start
 
 Start the dashboard and either scan its QR link with each phone or open `/camera.html` on an HTTPS origin and enter its **6-digit code**. Allow camera access and press **Join**. The pairing link includes a match ID and join key. Each phone has a stable per-tab camera identity; connection recovery and re-offering after phone/dashboard reloads are automatic. Use **New code** to rotate future pairing credentials. For local video, select a device and choose **Add local camera**.
 
+## Game modes (half court only)
+
+* **1v1 half court** (default): Player A vs Player B, 1 point inside the arc, 2 beyond, first to **11**, 10 min, 12 s shot clock. Sides follow player identity, so identical clothes are fine.
+* **FIBA 3x3 half court**: 1 & 2 points, first to 21. **Half court 2 & 3 pts**: classic scoring.
+
+**AUTO-CALL** (on by default): fouls/violations whose evidence meets the threshold are called immediately (clock stops, counted in FOULS); weaker evidence stays **NEEDS HUMAN REVIEW**. The referee can **Overturn** any auto-call. With one camera most fouls stay in review; auto-calls need two angles. Evidence thresholds are not yet validated on real games, so expect wrong calls.
+
+**Game recording**: enter a location (or 📍 GPS) and press **● Record game**. Every camera angle is saved as `COURTSIDE_<match>_<YYYY-MM-DD_HH-MM>_<camera>.webm` plus `…_match-info.json` (match, date, start/end time, time zone, location, cameras, final score, score history, calls, timeline). Chrome/Edge write straight to a folder you choose; other browsers download the files when you stop.
+
 ## Court calibration (automatic, half court)
 
 Nothing to click. Each camera searches for the court lines in the background (every few seconds until found, and again if the camera is bumped or the lines disappear). COURTSIDE assumes a **half-court game**: the filmed basket is always treated as the same basket, and the camera's physical position (above the floor) fixes the remaining mirror ambiguity, so **every camera gets the same court frame automatically**. That shared frame is what gives a player the same ID (P1, P2…) in every camera, and it locates the rim for scoring.

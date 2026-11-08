@@ -99,3 +99,26 @@ test('automatic half-court calibration (no clicks) on a (synthetic) court video 
     await dash.waitForFunction(() => document.getElementById('calCount').textContent === '1 / 1', null, { timeout: 5000 });
   } finally { await b.close(); }
 });
+
+test('game recording: every camera angle + match info (date, times, location, score) is saved', async () => {
+  const b = await chromium.launch({ args: FAKE });
+  try {
+    const ctx = await b.newContext({ permissions: ['camera'], acceptDownloads: true });
+    await ctx.addInitScript(() => { delete window.showDirectoryPicker; }); // headless: use the in-memory + download path
+    const dash = await ctx.newPage(); await dash.goto(BASE); await waitCode(dash);
+    await dash.click('#addLocal'); await waitLive(dash, 1);
+    await dash.fill('#locText', 'Test court, Noida'); await dash.dispatchEvent('#locText', 'change');
+    await dash.click('#recBtn'); await dash.waitForFunction(() => /REC/.test(document.getElementById('recStatus').textContent), null, { timeout: 5000 });
+    await dash.locator('[data-team="home"][data-points="2"]').click(); await dash.waitForTimeout(3500);
+    const downloads = []; dash.on('download', d => downloads.push(d));
+    await dash.click('#recBtn'); await dash.waitForFunction(() => /saved/.test(document.getElementById('recStatus').textContent), null, { timeout: 15000 });
+    await dash.waitForTimeout(500);
+    const names = downloads.map(d => d.suggestedFilename());
+    const video = downloads.find(d => d.suggestedFilename().endsWith('.webm')), info = downloads.find(d => d.suggestedFilename().endsWith('_match-info.json'));
+    assert.ok(video && info, names.join(', ')); assert.match(video.suggestedFilename(), /^COURTSIDE_.+_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}_.+\.webm$/);
+    assert.ok(fs.statSync(await video.path()).size > 10000, 'video has data');
+    const meta = JSON.parse(fs.readFileSync(await info.path(), 'utf8'));
+    assert.equal(meta.location.text, 'Test court, Noida'); assert.ok(meta.startedAt && meta.endedAt && meta.durationSec >= 3);
+    assert.equal(meta.finalScore.home, 2); assert.equal(meta.cameras.length, 1); assert.ok(meta.timezone);
+  } finally { await b.close(); }
+});

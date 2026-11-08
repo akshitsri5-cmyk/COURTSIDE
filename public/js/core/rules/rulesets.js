@@ -28,8 +28,24 @@ export const NBA = {
   fouls: { ...FIBA.fouls, personalFoulLimit: 6, teamFoulPenalty: 5 },
 };
 
-export const RULESETS = { FIBA, NBA };
-export function getRuleset(id = 'FIBA', overrides = {}) {
+// Half-court formats (the only mode COURTSIDE currently targets)
+export const FIBA_3X3 = {
+  ...FIBA, id: '3X3', name: 'FIBA 3x3 half court (1 & 2 pts, to 21)',
+  timing: { ...FIBA.timing, periods: 1, periodSec: 600, overtimeSec: 600, shotClock: 12, shotClockOffensiveRebound: 12, stopClockAfterMadeBasketLastSec: 60 },
+  scoring: { threePoint: 2, fieldGoal: 1, freeThrow: 1 }, winScore: 21,
+  fouls: { ...FIBA.fouls, teamFoulPenalty: 7 },
+};
+// 1v1 half court (current focus): two players, 1 & 2 points, first to 11, 12 s shot clock.
+export const ONE_V_ONE = {
+  ...FIBA_3X3, id: '1V1', name: '1v1 half court (1 & 2 pts, to 11)', winScore: 11, oneOnOne: true,
+  sideNames: { home: 'PLAYER A', away: 'PLAYER B' },
+};
+export const HALF_2_3 = {
+  ...FIBA, id: 'HALF23', name: 'Half court, 2 & 3 pts (FIBA lines)',
+  timing: { ...FIBA.timing, periods: 1, periodSec: 600, overtimeSec: 300, stopClockAfterMadeBasketLastSec: 60 }, winScore: null,
+};
+export const RULESETS = { '1V1': ONE_V_ONE, '3X3': FIBA_3X3, HALF23: HALF_2_3, FIBA, NBA };
+export function getRuleset(id = '1V1', overrides = {}) {
   const base = RULESETS[id] || FIBA;
   return { ...base, ...overrides, analysis: { ...base.analysis, ...(overrides.analysis || {}) }, timing: { ...base.timing, ...(overrides.timing || {}) } };
 }

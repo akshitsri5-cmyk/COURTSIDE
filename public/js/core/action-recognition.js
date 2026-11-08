@@ -43,9 +43,9 @@ export class ActionRecognizer {
         if (take) {
           margin = this.model.threePointMargin(take.pos, side);
           const sig = Math.max(this.cfg.threePointUncertaintyMin, take.sigma || 0);
-          points = margin > 0 ? 3 : 2; pointsUncertain = Math.abs(margin) < sig;
+          const SC = this.ctx.scoring || { threePoint: 3, fieldGoal: 2, freeThrow: 1 }; points = margin > 0 ? SC.threePoint : SC.fieldGoal; pointsUncertain = Math.abs(margin) < sig;
           const ftSpot = [side * (this.model.ftX - 0.3), 0];
-          if (this.ctx.isClockRunning && !this.ctx.isClockRunning() && Math.hypot(take.pos[0] - ftSpot[0], take.pos[1]) < 0.8) { points = 1; freeThrow = true; pointsUncertain = false; }
+          if (this.ctx.isClockRunning && !this.ctx.isClockRunning() && Math.hypot(take.pos[0] - ftSpot[0], take.pos[1]) < 0.8) { points = (this.ctx.scoring || {}).freeThrow ?? 1; freeThrow = true; pointsUncertain = false; }
         }
         const s = { type: 'shot', id: 'S' + (SHOT_ID++), t: tRel, player: pid, team, side, points, pointsUncertain, margin, freeThrow, takeoff: take?.pos || null, reasons: shot.reasons };
         E(s); this.shots.push({ ...s, votes: {}, state: {}, deadline: tRel + 3.0, crossed3D: null }); this.lastShot = s;
