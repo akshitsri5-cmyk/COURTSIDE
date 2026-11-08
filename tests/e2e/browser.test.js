@@ -78,7 +78,7 @@ test('detectors on a real photograph (YOLO11n persons + MediaPipe poses)', async
   } finally { await b.close(); }
 });
 
-test('court auto-calibration through the dashboard UI on a (synthetic) court video feed', async () => {
+test('automatic half-court calibration (no clicks) on a (synthetic) court video feed', async () => {
   const y4m = path.join(ROOT, 'tests/fixtures/court.y4m');
   const cam = lookAtCamera({ eye: [2, -13, 7], target: [8, 0, 0], f: 1000, width: 1280, height: 720 });
   if (!fs.existsSync(y4m)) { fs.mkdirSync(path.dirname(y4m), { recursive: true }); const f = renderCourt(cam, { seed: 4 }).data; writeY4M(y4m, [f, f], 1280, 720); }
@@ -86,14 +86,12 @@ test('court auto-calibration through the dashboard UI on a (synthetic) court vid
   try {
     const dash = await (await b.newContext({ permissions: ['camera'] })).newPage(); await dash.goto(BASE); await waitCode(dash);
     await dash.click('#addLocal'); await waitLive(dash, 1); await dash.waitForTimeout(500);
-    await dash.click('.act-cal'); await dash.click('#calibAuto');
-    await dash.waitForFunction(() => /Court found|failed/.test(document.getElementById('calibMsg').textContent), null, { timeout: 30000 });
-    assert.match(await dash.textContent('#calibMsg'), /Court found/);
-    await dash.click('#calibSave'); await dash.waitForFunction(() => /calibrated/.test(document.getElementById('timeline').textContent), null, { timeout: 10000 });
+    // no clicks: the court must be found automatically
+    await dash.waitForFunction(() => /court found automatically/.test(document.getElementById('timeline').textContent), null, { timeout: 60000 });
     const res = await dash.evaluate(() => { const c = courtside.analyzer.camera('local1').calib; return { H: c.Hc2i, w: c.width, rel: c.camModel.reliable, h: c.camModel.centre[2] }; });
     // compare with ground truth in the analysis resolution (960 px wide), allowing the court's symmetries
     const s = res.w / 1280, apply = (H, [x, y]) => { const w = H[2][0] * x + H[2][1] * y + H[2][2]; return [(H[0][0] * x + H[0][1] * y + H[0][2]) / w, (H[1][0] * x + H[1][1] * y + H[1][2]) / w]; };
-    const err = Math.min(...[[1, 1], [-1, 1], [1, -1], [-1, -1]].map(([a, bb]) => { let e = 0, n = 0; for (const p of [[8.2, 2.45], [14, -7.5], [5.675, 0], [10, -4]]) { const q = apply(res.H, [a * p[0], bb * p[1]]), g = apply(cam.H, p); e += Math.hypot(q[0] - g[0] * s, q[1] - g[1] * s); n++; } return e / n; }));
+    const err = Math.min(...[[1, 1]].map(([a, bb]) => /* half-court canonical frame: NO symmetry tolerance */ { let e = 0, n = 0; for (const p of [[8.2, 2.45], [14, -7.5], [5.675, 0], [10, -4]]) { const q = apply(res.H, [a * p[0], bb * p[1]]), g = apply(cam.H, p); e += Math.hypot(q[0] - g[0] * s, q[1] - g[1] * s); n++; } return e / n; }));
     assert.ok(err < 4, 'calibration error ' + err.toFixed(2) + ' px'); assert.ok(res.rel && Math.abs(res.h - 7) < 0.8, 'camera height ' + res.h);
     assert.equal(await dash.evaluate(() => document.getElementById('calCount').textContent), '1 / 1');
   } finally { await b.close(); }

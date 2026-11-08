@@ -39,13 +39,15 @@ TURN_USERNAME=your-user TURN_CREDENTIAL=your-secret npm start
 
 Start the dashboard and either scan its QR link with each phone or open `/camera.html` on an HTTPS origin and enter its **6-digit code**. Allow camera access and press **Join**. The pairing link includes a match ID and join key. Each phone has a stable per-tab camera identity; connection recovery and re-offering after phone/dashboard reloads are automatic. Use **New code** to rotate future pairing credentials. For local video, select a device and choose **Add local camera**.
 
-## Calibrate each camera
+## Court calibration (automatic, half court)
 
-1. Position each camera to cover as much of the playing court as practical and open its **Calibrate** control.
-2. Use **Auto-detect court lines**, inspect the result, and try a fresh frame if needed. This is experimental in real gyms.
-3. Use **Flip ends** and **Flip sides** until court ends/sides have the **same naming and orientation across every camera**, even when cameras look from opposite directions.
-4. If detection fails, select corresponding court landmarks on the calibration canvas and use **Compute from points**. Mark the **left and right rims** separately.
-5. Save calibration for each camera. Recalibrate if a device moves or its field of view changes.
+Nothing to click. Each camera searches for the court lines in the background (every few seconds until found, and again if the camera is bumped or the lines disappear). COURTSIDE assumes a **half-court game**: the filmed basket is always treated as the same basket, and the camera's physical position (above the floor) fixes the remaining mirror ambiguity, so **every camera gets the same court frame automatically**. That shared frame is what gives a player the same ID (P1, P2…) in every camera, and it locates the rim for scoring.
+
+Tips: mount phones high (≥2 m) at the side or corner, landscape, with as many court lines visible as possible (baseline, key, free-throw line, 3-point line). The camera card shows `Court: auto ✓ NN%` when found or `court not found — make the court lines visible`.
+
+**Manual court fix** (on each camera card) is only a fallback for courts whose lines can't be detected (faded paint, heavy occlusion): click ≥4 named points, or mark the rim if it wasn't located.
+
+Automatic detection is validated on synthetic court renders from four camera angles (≤1.6 px error, correct shared orientation); it has **not yet been validated in real gyms**.
 
 ## Features
 

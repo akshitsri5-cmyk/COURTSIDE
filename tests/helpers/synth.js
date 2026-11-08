@@ -35,7 +35,7 @@ export function renderCourt(cam, { seed = 1, noise = 10, occluders = 6, clutterL
   for (const m of model.markings(0.01)) for (const p of m.pts) {
     const q = project(cam.P, [p[0], p[1], 0]); if (!q) continue;
     // line width 5 cm projected: estimate pixel size from neighbour
-    const q2 = project(cam.P, [p[0] + 0.05, p[1], 0]); const rad = Math.max(0.8, q2 ? Math.hypot(q2[0] - q[0], q2[1] - q[1]) / 1.4 : 1);
+    const q2 = project(cam.P, [p[0] + 0.05, p[1], 0]); const rad = Math.min(6, Math.max(0.8, q2 ? Math.hypot(q2[0] - q[0], q2[1] - q[1]) / 1.4 : 1)); // cap: points near the horizon
     paint(q[0], q[1], rad, [245, 245, 240]);
   }
   for (let k = 0; k < clutterLines; k++) { // advertising / non-court bright lines

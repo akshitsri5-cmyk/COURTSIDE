@@ -6,7 +6,7 @@
 //     against ALL court markings (incl. arcs), then refine with an ICP-style loop.
 //  5. refineHomography(): refine a manual 4-point calibration against detected line pixels.
 //  6. markingSupport(): per-marking evidence (boundary, 3pt, FT line, key, centre) for the dashboard.
-import { estimateHomography, applyH, hDepth } from './homography.js';
+import { estimateHomography, applyH, hDepth, cameraFromHomography } from './homography.js';
 import { CourtModel } from './court-model.js';
 
 /** Downscale RGBA image to grayscale Float32 with max dimension `maxDim`. Returns {w,h,gray,scale}. */
@@ -312,4 +312,27 @@ export function calibrate(img, Hmanual, { model = new CourtModel(), clicked = nu
   const fine = sampleModel(model, 0.1), P = r.prep, Hs = downH(best.V, P.scale), sc = scoreHomography(Hs, P.dt, P.w, P.h, fine);
   if (sc.score > r.after.score && best.e < 0.15 * Math.max(img.width, img.height)) return { H: best.V, method: 'auto (orientation from clicks)', fit: sc, support: markingSupport(best.V, P, model), prep: P, clickError: best.e };
   return result;
+}
+
+/**
+ * Half-court canonical orientation (no operator input): among the court's 4 symmetric solutions pick the
+ * one where (a) the visible court lies in the +x half (the half-court's basket is always the right basket)
+ * and (b) the recovered camera is physically above the floor in a right-handed court frame (zSign = +1).
+ * Every camera calibrated this way shares one court frame, which is what cross-camera player IDs need.
+ */
+export function canonicalHalfCourt(H, width, height) {
+  const scored = symmetricVariants(H).map(V => {
+    let pos = 0, n = 0;
+    for (let x = -14; x <= 14; x += 1) for (let y = -7.5; y <= 7.5; y += 1) {
+      if (hDepth(V, [x, y]) <= 0) continue; const q = applyH(V, [x, y]);
+      if (q[0] < 0 || q[1] < 0 || q[0] >= width || q[1] >= height) continue;
+      // weight by on-screen area of this 1 m cell: the filmed half dominates the image, the far half is compressed
+      const qx = applyH(V, [x + 1, y]), qy = applyH(V, [x, y + 1]), a = Math.abs((qx[0] - q[0]) * (qy[1] - q[1]) - (qx[1] - q[1]) * (qy[0] - q[0]));
+      n += a; if (x > 0) pos += a;
+    }
+    let right = 0; try { right = cameraFromHomography(V, width, height).zSign === 1 ? 1 : 0; } catch { }
+    return { V, score: (n ? pos / n : 0) + right };
+  });
+  scored.sort((a, b) => b.score - a.score);
+  return scored[0].V;
 }

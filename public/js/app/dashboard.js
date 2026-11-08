@@ -97,7 +97,7 @@ function makeCard(c) {
   $('emptyCard')?.remove();
   const el = document.createElement('div'); el.className = 'camera-card'; el.dataset.cam = c.id;
   el.innerHTML = `<div class="camera-head"><b class="cname"></b><span class="camera-state">—</span></div><div class="stage"></div><div class="issues"></div><div class="camera-foot"></div>
-   <div class="controls"><button class="sm primary act-cal">Calibrate</button><button class="sm act-ana">Analysis on</button><button class="sm act-lines">Court lines</button>${c.kind === 'PHONE' ? '<button class="sm act-flip">Flip</button><button class="sm act-pause">Pause</button><button class="sm act-torch">Torch</button><button class="sm act-hd">720p/480p</button>' : ''}<button class="sm danger act-rm">Remove</button></div>`;
+   <div class="controls"><button class="sm act-cal" title="Only needed if automatic court detection fails">Manual court fix</button><button class="sm act-ana">Analysis on</button><button class="sm act-lines">Court lines</button>${c.kind === 'PHONE' ? '<button class="sm act-flip">Flip</button><button class="sm act-pause">Pause</button><button class="sm act-torch">Torch</button><button class="sm act-hd">720p/480p</button>' : ''}<button class="sm danger act-rm">Remove</button></div>`;
   const stage = el.querySelector('.stage'), overlay = document.createElement('canvas'); stage.append(c.video, overlay);
   $('cameraGrid').append(el);
   const card = { el, overlay, showLines: true, hd: true, torch: false }; S.cards.set(c.id, card);
@@ -276,6 +276,11 @@ function render() {
 requestAnimationFrame(render);
 setInterval(() => {
   $('detStatus').textContent = detector.status; const p0 = [...S.pipelines.values()][0]; $('poseStatus').textContent = S.settings.pose ? (p0?.pose.status || '—') : 'off';
+  { // explain WHY fouls/scoring may be idle instead of failing silently
+    const cams = [...S.pipelines.keys()], cal = cams.filter(id => analyzer.camera(id).calib), rims = cal.some(id => analyzer.camera(id).calib.rims.length);
+    const msg = !cams.length ? 'add a camera' : !cal.length ? 'waiting — point a camera at the half court so its lines are visible (automatic)' : !S.lastState?.players.length ? 'no players on the calibrated court' : !rims ? 'active — rim not located (use Manual court fix → mark rim) for scoring' : cal.length < 2 ? 'active (1 camera: fouls/shots mostly NEEDS HUMAN REVIEW; add a 2nd camera)' : 'active';
+    $('gameStatus').textContent = msg; $('gameStatus').style.color = msg.startsWith('active') && !msg.includes('—') ? 'var(--lime)' : 'var(--amber)';
+  }
   const st = S.lastState; $('peopleCount').textContent = st ? st.players.length : '—';
   $('ballStatus').textContent = st ? (st.ball.X ? `3-D (${st.ball.X.map(v => v.toFixed(1)).join(', ')})` : Object.keys(st.ball.views).length ? 'seen in ' + Object.keys(st.ball.views).join(', ') : 'not visible') : '—';
   $('possState').textContent = st?.poss.controller ? `${st.poss.controller} (${teamName(st.poss.team)}) · ${st.poss.state}` : (st ? st.poss.state : '—');
@@ -283,13 +288,41 @@ setInterval(() => {
   for (const [id, p] of S.pipelines) {
     const card = S.cards.get(id), c = cm.cams.get(id); if (!card || !c) continue; const h = p.healthReport, calib = analyzer.camera(id).calib;
     const iss = card.el.querySelector('.issues'); iss.textContent = h?.issues.map(i => i.msg).join(' · ') || ''; iss.className = 'issues ' + (h?.level === 'bad' ? 'bad' : '');
-    card.el.querySelector('.camera-foot').innerHTML = `<span>Players: <b>${p.last ? p.last.out?.tracks.length ?? 0 : '—'}</b></span><span>Ball: <b>${p.last ? (analyzer.camera(id).ball.estimate()?.state || 'no') : '—'}</b></span><span>Calib: <b>${calib ? 'yes' + (calib.rims.length ? ' · rims ' + calib.rims.length : '') : 'NO'}</b></span><span>fps <b>${h ? h.fps.toFixed(0) : '—'}</b></span>${c.stats.rttMs !== undefined ? `<span>RTT <b>${Math.round(c.stats.rttMs)} ms</b></span><span>loss <b>${(c.stats.packetLossPct || 0).toFixed(1)}%</b></span>` : ''}${c.battery ? `<span>🔋 <b>${Math.round(c.battery.level * 100)}%</b></span>` : ''}${p.error ? `<span style="color:var(--red)">${esc(p.error)}</span>` : ''}`;
+    card.el.querySelector('.camera-foot').innerHTML = `<span>Players: <b>${p.last ? p.last.out?.tracks.length ?? 0 : '—'}</b></span><span>Ball: <b>${p.last ? (analyzer.camera(id).ball.estimate()?.state || 'no') : '—'}</b></span><span>Court: <b>${p.courtState || (calib ? (calib.auto ? 'auto ✓' : 'manual ✓') + (calib.rims.length ? ' · rim' : '') : 'waiting for video…')}</b></span><span>fps <b>${h ? h.fps.toFixed(0) : '—'}</b></span>${c.stats.rttMs !== undefined ? `<span>RTT <b>${Math.round(c.stats.rttMs)} ms</b></span><span>loss <b>${(c.stats.packetLossPct || 0).toFixed(1)}%</b></span>` : ''}${c.battery ? `<span>🔋 <b>${Math.round(c.battery.level * 100)}%</b></span>` : ''}${p.error ? `<span style="color:var(--red)">${esc(p.error)}</span>` : ''}`;
   }
   updateStats();
 }, 500);
 detector.load(S.settings.detector || 'auto').then(k => { if (k === 'COCO-SSD') analyzer.setTrackerOptions({ highThresh: 0.35, newTrackThresh: 0.4, lowThresh: 0.15 }); }).catch(() => { });
 // periodic court-visibility check for calibrated cameras
 setInterval(() => { for (const [id, p] of S.pipelines) { const c = analyzer.camera(id).calib; if (!c || !p.last) continue; const img = p.grab(); if (img) workerCall('fit', { img, H: c.Hc2i }).then(r => p.health.noteCourtFit(r.fraction)).catch(() => { }); } }, 20000);
+
+// ---------- automatic half-court calibration (no operator input) ----------
+// Each camera searches for the court lines in the background; the half-court canonical orientation gives all
+// cameras the same court frame, so cross-camera player IDs work without clicking anything.
+S.autoBusy = false;
+async function autoCalibrateTick() {
+  if (S.autoBusy) return;
+  for (const [id, p] of S.pipelines) {
+    const c = analyzer.camera(id).calib, issues = p.healthReport?.issues || [];
+    const needs = !c || (c.auto && issues.some(i => i.code === 'moved' || i.code === 'court_lost'));
+    if (!needs || !p.last || (p.autoTried && Date.now() - p.autoTried < 8000)) continue;
+    const img = p.grab(); if (!img) continue;
+    S.autoBusy = true; p.autoTried = Date.now(); p.courtState = 'searching for court lines…';
+    try {
+      const r = await workerCall('auto', { img, halfCourt: true });
+      if (!r.H) { p.courtState = 'court not found — make the court lines visible'; continue; }
+      const calib = { Hc2i: r.H, width: img.width, height: img.height, rimsManual: null, auto: true };
+      const cc = analyzer.setCalibration(id, calib);
+      if (p.lastThumb) p.health.setReference(p.lastThumb, 96, 54); p.health.noteCourtFit(r.fraction, true);
+      store.set(`cs-calib-${S.match?.matchId}-${id}`, { ...calib, refThumb: p.lastThumb ? Array.from(p.lastThumb) : null, fit: r.fraction });
+      p.courtState = `auto ✓ ${Math.round(r.fraction * 100)}%${cc.rims.length ? ' · rim found' : ''}`;
+      timeline(`${cm.cams.get(id)?.label || id}: court found automatically (${Math.round(r.fraction * 100)}% of visible lines matched${cc.rims.length ? ', rim located' : ''}).`);
+    } catch (e) { p.courtState = 'court detection error: ' + e.message; }
+    finally { S.autoBusy = false; }
+    break; // one camera per tick keeps the page responsive
+  }
+}
+setInterval(autoCalibrateTick, 2000);
 
 // ---------- flash sync check ----------
 $('flashSync').onclick = () => {
@@ -329,7 +362,7 @@ $('calibCanvas').onclick = e => {
   if (K.rimMode) { const side = K.rimMode.side; if (!K.rimMode.centre) { K.rimMode.centre = [u, v]; $('calibMsg').textContent = 'Now click the left or right edge of the rim.'; } else { const [cu, cvv] = K.rimMode.centre, rx = Math.max(3, Math.abs(u - cu)); K.rims[side] = { side, u: cu, v: cvv, rx, ry: Math.max(1.5, rx * 0.3), source: 'manual' }; K.rimMode = null; $('calibMsg').textContent = 'Rim marked.'; } drawCalib(); return; }
   K.pts[K.active] = [u, v]; const keys = Object.keys(KP), i = keys.indexOf(K.active); K.active = keys.find((k, j) => j > i && !K.pts[k]) || K.active; renderKp(); drawCalib();
 };
-$('calibAuto').onclick = async () => { $('calibMsg').textContent = 'Detecting court lines…'; try { const r = await workerCall('auto', { img: K.img }); if (!r.H) { $('calibMsg').textContent = 'Auto-detection failed: ' + r.reason + '. Use manual points.'; return; } K.H = r.H; K.support = r.support; $('calibMsg').textContent = `Court found (${Math.round(r.fraction * 100)}% of visible markings matched, ${r.elapsedMs} ms). The court is symmetric: use Flip ends / Flip sides so the overlay matches YOUR naming (same for every camera).`; drawCalib(); } catch (e) { $('calibMsg').textContent = e.message; } };
+$('calibAuto').onclick = async () => { $('calibMsg').textContent = 'Detecting court lines…'; try { const r = await workerCall('auto', { img: K.img, halfCourt: true }); if (!r.H) { $('calibMsg').textContent = 'Auto-detection failed: ' + r.reason + '. Use manual points.'; return; } K.H = r.H; K.support = r.support; $('calibMsg').textContent = `Court found (${Math.round(r.fraction * 100)}% of visible markings matched, ${r.elapsedMs} ms). The court is symmetric: use Flip ends / Flip sides so the overlay matches YOUR naming (same for every camera).`; drawCalib(); } catch (e) { $('calibMsg').textContent = e.message; } };
 $('calibCompute').onclick = async () => { const clicked = Object.entries(K.pts).map(([k, p]) => ({ court: KP[k], img: p })); if (clicked.length < 4) { $('calibMsg').textContent = 'Click at least 4 named points.'; return; } $('calibMsg').textContent = 'Computing and refining against detected lines…'; try { const r = await workerCall('calibrate', { img: K.img, clicked }); K.H = r.H; K.support = r.support; $('calibMsg').textContent = `Method: ${r.method}. Fit ${Math.round((r.fit?.fraction || 0) * 100)}%.`; drawCalib(); } catch (e) { $('calibMsg').textContent = 'Failed: ' + e.message; } };
 $('flipX').onclick = () => { if (K.H) { K.H = K.H.map(r => [-r[0], r[1], r[2]]); drawCalib(); } }; $('flipY').onclick = () => { if (K.H) { K.H = K.H.map(r => [r[0], -r[1], r[2]]); drawCalib(); } };
 $('calibRefresh').onclick = () => { const img = S.pipelines.get(K.cam)?.grab(); if (img) { K.img = img; drawCalib(); } };

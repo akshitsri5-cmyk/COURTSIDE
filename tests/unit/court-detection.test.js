@@ -43,3 +43,13 @@ test('a blank / non-court image is rejected instead of producing a fake calibrat
   const W = 640, H = 360, data = new Uint8ClampedArray(W * H * 4); for (let i = 0; i < data.length; i += 4) { data[i] = 120; data[i + 1] = 100; data[i + 2] = 90; data[i + 3] = 255; }
   const r = autoDetectCourt({ width: W, height: H, data }); assert.equal(r.H, null); assert.ok(r.reason);
 });
+
+test('half-court auto-calibration: cameras on opposite sides get the SAME court frame with no input', async () => {
+  const { canonicalHalfCourt } = await import('../../public/js/core/court-detection.js');
+  for (const [eye, target] of [[[2, -13, 7], [8, 0, 0]], [[17, 9, 6], [7, 0, 0]]]) {
+    const cam = lookAtCamera({ eye, target, f: 1000, width: 1280, height: 720 });
+    const r = autoDetectCourt(renderCourt(cam, { seed: 2 })); assert.ok(r.H, r.reason);
+    const e = meanReprojError(canonicalHalfCourt(r.H, 1280, 720), cam.H, grid, cam); // NO symmetry tolerance
+    assert.ok(e < 3, `camera at ${eye}: ${e.toFixed(2)} px`);
+  }
+});
