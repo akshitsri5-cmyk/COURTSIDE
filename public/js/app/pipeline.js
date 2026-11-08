@@ -34,14 +34,17 @@ export class CameraPipeline {
     this.health.noteFrame(now / 1000); this.stampMethod = stamp.method;
     if (this.lumSeries) { this.tctx.drawImage(this.cam.video, 0, 0, 96, 54); const d = this.tctx.getImageData(0, 0, 96, 54).data; let s = 0; for (let i = 0; i < d.length; i += 4) s += d[i] * 0.3 + d[i + 1] * 0.59 + d[i + 2] * 0.11; this.lumSeries.push({ t: stamp.serverMs, y: s / (96 * 54) }); }
     if (!this.enabled || this.busy || !this.detector.kind || this.cam.paused) return;
-    if (now - this.lastRun < 1000 / this.opts.fps) return;
+    // adaptive pacing: analysis may use at most ~half of the main thread, whatever FPS was requested
+    const minGap = Math.max(1000 / this.opts.fps, 2 * (this.timings.total || 0));
+    if (now - this.lastRun < minGap) return;
     this.busy = true; this.lastRun = now;
     try {
       const T0 = performance.now(), img = this.grab(); if (!img) return;
       const det = await this.detector.detect(this.canvas); const T1 = performance.now();
-      const poses = this.opts.pose ? this.pose.detect(this.canvas, now) : []; const T2 = performance.now();
+      // whole-frame multi-person pose on alternate frames; per-player crops fill in (max 3 per frame)
+      const poses = this.opts.pose && this.frameN % 2 === 0 ? this.pose.detect(this.canvas, now) : []; const T2 = performance.now();
       let persons = attachPoses(det.persons.filter(p => p.bbox[3] > 20), poses);
-      if (this.opts.pose) { let n = 0; for (const p of persons) if (!p.pose && p.score > 0.4 && n++ < 8) p.pose = this.pose.detectCrop(this.canvas, p.bbox); }
+      if (this.opts.pose) { let n = 0; for (const p of persons) if (!p.pose && p.score > 0.4 && n++ < 3) p.pose = this.pose.detectCrop(this.canvas, p.bbox); }
       persons = persons.map(p => ({ ...p, emb: embed(img, p.bbox) }));
       // colour candidates around the predicted ball (fast motion blur) or a coarse full-frame scan
       const est = this.analyzer.camera(this.cam.id).ball.estimate();
