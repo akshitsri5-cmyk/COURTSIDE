@@ -4,6 +4,7 @@
 import { embed } from '../core/appearance.js';
 import { findBallCandidates } from '../core/ball-tracking.js';
 import { attachPoses } from '../core/game-analyzer.js';
+import { iou } from '../core/player-tracking.js';
 import { CameraHealthMonitor } from '../core/camera-health.js';
 import { PoseEstimator } from './detectors.js';
 
@@ -67,6 +68,10 @@ export class CameraPipeline {
     const calib = this.analyzer.camera(this.cam.id).calib;
     if (showCourt && calib) this.opts.drawCourt?.(x, calib.Hc2i, s);
     x.lineWidth = 2; x.font = 'bold 11px system-ui';
+    // raw detections not (yet) part of a confirmed track: thin dashed boxes, so every detected person is visible
+    x.setLineDash([5, 4]); x.lineWidth = 1.5; x.strokeStyle = 'rgba(199,255,74,.75)';
+    for (const p of L.persons) if (!L.out.tracks.some(tr => iou(tr.bbox, p.bbox) > 0.3)) { const b = p.bbox; x.strokeRect(b[0] * s, b[1] * s, b[2] * s, b[3] * s); x.fillStyle = 'rgba(199,255,74,.85)'; x.fillText(Math.round(p.score * 100) + '%', b[0] * s + 3, b[1] * s - 4); }
+    x.setLineDash([]); x.lineWidth = 2;
     for (const tr of L.out.tracks) {
       const g = fusion.byCameraTrack(this.cam.id, tr.id), b = tr.bbox, col = g?.team === 0 ? '#c7ff4a' : g?.team === 1 ? '#ff914d' : '#9fb3ab';
       x.strokeStyle = col; x.strokeRect(b[0] * s, b[1] * s, b[2] * s, b[3] * s);

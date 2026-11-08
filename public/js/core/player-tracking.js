@@ -48,7 +48,7 @@ export class Track {
 export class PlayerTracker {
   constructor(opts = {}) {
     this.o = {
-      highThresh: 0.5, lowThresh: 0.15, newTrackThresh: 0.55, minHits: 3, maxLostSec: 4.0,
+      highThresh: 0.5, lowThresh: 0.15, newTrackThresh: 0.55, minHits: 2, maxLostSec: 4.0,
       matchCost: 0.8, lowMatchIou: 0.3, appearanceWeight: 0.3, reidMaxApp: 0.35, processNoise: 2.0,
       emaAlpha: 0.12, idPrefix: 'T', ...opts,
     };
@@ -75,7 +75,10 @@ export class PlayerTracker {
 
     // Stage 3: tentative tracks vs remaining high detections
     const remHighIdx = high.map((_, j) => j).filter(j => !usedHigh.has(j));
-    const cost3 = tentative.map(tr => remHighIdx.map(j => 1 - iou(tr.bbox, high[j].bbox)));
+    // IoU fails at low analysis rates (CPU-only laptops: ~1 fps) when players move between frames,
+    // so tentative tracks also match by foot-point distance normalised by body height.
+    const near = (a, b, dt) => { const d = Math.hypot(a[0] + a[2] / 2 - b[0] - b[2] / 2, a[1] + a[3] - b[1] - b[3]) / Math.max(a[3], b[3]); const g = 0.35 + 1.2 * Math.min(dt, 1.5); return d < g && Math.max(a[3], b[3]) / Math.min(a[3], b[3]) < 1.5 ? 0.69 * d / g : 1; };
+    const cost3 = tentative.map(tr => remHighIdx.map(j => Math.min(1 - iou(tr.bbox, high[j].bbox), near(tr.bbox, high[j].bbox, t - tr.lastSeen))));
     hungarian(cost3, 0.7).forEach((k, i) => { if (k >= 0) { const j = remHighIdx[k]; tentative[i].update(high[j], t, o.emaAlpha); usedHigh.add(j); matched.add(tentative[i]); if (tentative[i].hits >= o.minHits) tentative[i].state = 'confirmed'; } });
 
     // Unmatched tracks

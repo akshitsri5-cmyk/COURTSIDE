@@ -97,3 +97,9 @@ test('pose skeletons are attached to the right person detection', () => {
   const out = attachPoses(dets, [pose(310, 110), pose(110, 110)]);
   assert.equal(out[0].pose[0].x, 110); assert.equal(out[1].pose[0].x, 310);
 });
+
+test('low analysis rate (1 fps): a walking player is still confirmed as a track', () => {
+  const tr = new PlayerTracker(); let confirmed = null;
+  for (let k = 0; k < 4; k++) { const d = { bbox: [100 + 70 * k, 200, 50, 150], score: 0.9 }; tr.update([d], k); const m = tr.active().find(x => x.det === d); if (m) confirmed = m.id; }
+  assert.ok(confirmed, 'track confirmed despite zero IoU between 1-s frames');
+});
