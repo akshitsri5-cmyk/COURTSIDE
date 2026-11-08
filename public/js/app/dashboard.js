@@ -31,7 +31,7 @@ const sig = new SignalClient(() => ({ type: 'hello', role: 'host', matchId: S.ma
 const serverNowMs = () => sig.serverTime();
 const timestamper = new FrameTimestamper(local => local + performance.timeOrigin + sig.clock.offset);
 const cm = new CameraManager(sig, []);
-$('fpsSel').value = String(S.settings.fps); $('poseOn').checked = S.settings.pose; $('rulesetSel').value = S.settings.ruleset;
+$('fpsSel').value = String(S.settings.fps); $('poseOn').checked = S.settings.pose; $('rulesetSel').value = S.settings.ruleset; $('detSel').value = S.settings.detector || 'auto';
 
 // ---------- timeline ----------
 const fmtClock = () => GameClock.format(clock.remainingMs());
@@ -237,6 +237,7 @@ $('fpsSel').onchange = e => { S.settings.fps = +e.target.value; saveSettings(); 
 $('poseOn').onchange = e => { S.settings.pose = e.target.checked; saveSettings(); };
 $('rulesetSel').onchange = e => { S.settings.ruleset = e.target.value; saveSettings(); if (confirm('Reload to apply the ' + e.target.value + ' ruleset?')) location.reload(); };
 $('rulesStatus').textContent = ruleset.name;
+$('detSel').onchange = e => { S.settings.detector = e.target.value; saveSettings(); location.reload(); };
 
 // ---------- drawing ----------
 function drawCourt(x, Hc2i, s) {
@@ -286,7 +287,7 @@ setInterval(() => {
   }
   updateStats();
 }, 500);
-detector.load().catch(() => { });
+detector.load(S.settings.detector || 'auto').catch(() => { });
 // periodic court-visibility check for calibrated cameras
 setInterval(() => { for (const [id, p] of S.pipelines) { const c = analyzer.camera(id).calib; if (!c || !p.last) continue; const img = p.grab(); if (img) workerCall('fit', { img, H: c.Hc2i }).then(r => p.health.noteCourtFit(r.fraction)).catch(() => { }); } }, 20000);
 

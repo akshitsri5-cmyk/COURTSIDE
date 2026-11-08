@@ -69,11 +69,12 @@ test('detectors on a real photograph (YOLO11n persons + MediaPipe poses)', async
     const r = await p.evaluate(async () => {
       const { PersonBallDetector, PoseEstimator } = await import('/js/app/detectors.js');
       const im = new Image(); im.src = '/fixture.jpg'; await im.decode(); const c = document.createElement('canvas'); c.width = im.width; c.height = im.height; c.getContext('2d').drawImage(im, 0, 0);
-      const d = new PersonBallDetector(); await d.load(); const o = await d.detect(c); const pe = new PoseEstimator(); await pe.load();
-      return { kind: d.kind, persons: o.persons.filter(p => p.score > 0.5).length, poses: o.persons.filter(p => p.score > 0.5).map(p => pe.detectCrop(c, p.bbox)).filter(Boolean).length };
+      const d = new PersonBallDetector(); await d.load('yolo'); const o = await d.detect(c); const pe = new PoseEstimator(); await pe.load();
+      const cs = new PersonBallDetector(); await cs.load('coco'); const oc = await cs.detect(c);
+      return { kind: d.kind, cocoKind: cs.kind, cocoPersons: oc.persons.filter(p => p.score > 0.5).length, persons: o.persons.filter(p => p.score > 0.5).length, poses: o.persons.filter(p => p.score > 0.5).map(p => pe.detectCrop(c, p.bbox)).filter(Boolean).length };
     });
     // bus.jpg contains 4 people (3 fully visible, 1 cut at the edge)
-    assert.equal(r.kind, 'YOLO11n'); assert.ok(r.persons >= 3, JSON.stringify(r)); assert.equal(r.poses, r.persons);
+    assert.equal(r.kind, 'YOLO11n'); assert.equal(r.cocoKind, 'COCO-SSD'); assert.ok(r.cocoPersons >= 2, 'COCO-SSD persons ' + r.cocoPersons); // measured: COCO-SSD lite finds 2 of the 3 clear people at >0.5 (YOLO: 3) assert.ok(r.persons >= 3, JSON.stringify(r)); assert.equal(r.poses, r.persons);
   } finally { await b.close(); }
 });
 

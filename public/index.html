@@ -15,6 +15,7 @@
   <label class="tag"><input type="checkbox" id="analysisOn" checked> AI ANALYSIS</label>
   <label class="tag">FPS <select id="fpsSel" style="width:auto"><option>5</option><option selected>10</option><option>15</option><option>20</option></select></label>
   <label class="tag"><input type="checkbox" id="poseOn" checked> POSE</label>
+  <select id="detSel" style="width:auto" title="Person/ball detector"><option value="auto">Detector: COCO-SSD (fast, default)</option><option value="yolo">YOLO11n CPU (accurate, slow)</option><option value="yolo-gpu">YOLO11n WebGPU (experimental)</option></select>
   <select id="rulesetSel" style="width:auto"><option value="FIBA">FIBA rules</option><option value="NBA">NBA court/timing</option></select>
   <button id="newMatch" class="danger sm">New match</button>
 </div>

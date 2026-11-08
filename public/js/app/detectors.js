@@ -6,28 +6,36 @@ import { letterbox, decodeYolo, COCO } from '../core/yolo-decode.js';
 
 export class PersonBallDetector {
   constructor() { this.kind = null; this.status = 'not loaded'; this.session = null; this.coco = null; this.busy = false; this.inputSize = 640; this.canvas = document.createElement('canvas'); this.canvas.width = this.canvas.height = 640; }
-  async load() {
+  /** pref: 'auto'/'coco' (COCO-SSD, TF.js WebGL), 'yolo' (YOLO11n on CPU/WASM, verified) or 'yolo-gpu' (YOLO11n on WebGPU, EXPERIMENTAL: produced broken boxes on a real GPU). */
+  async load(pref = 'auto') {
     if (this.kind) return this.kind;
     if (this.loading) return this.loading;
     this.loading = (async () => {
+      const gpu = !!(navigator.gpu && await navigator.gpu.requestAdapter().catch(() => null));
+      const coco = async why => {
+        await loadScript('/vendor/tfjs/tf.min.js'); await loadScript('/vendor/coco-ssd/coco-ssd.min.js');
+        await window.tf.ready(); this.coco = await window.cocoSsd.load({ base: 'lite_mobilenet_v2' });
+        this.kind = 'COCO-SSD'; this.status = `COCO-SSD (${window.tf.getBackend()}${why ? '; ' + why : ''})`; return this.kind;
+      };
+      if (pref === 'coco' || pref === 'auto') {
+        try { return await coco(''); }
+        catch (e) { console.warn('COCO-SSD unavailable:', e.message); if (pref === 'coco') { this.status = 'NO DETECTOR: ' + e.message; this.loading = null; throw e; } }
+      }
       try {
         const head = await fetch('/models/yolo11n.onnx', { method: 'HEAD' });
         if (!head.ok) throw new Error('models/yolo11n.onnx missing (run npm run models)');
         const ort = await import('/vendor/ort/ort.all.bundle.min.mjs');
         ort.env.wasm.wasmPaths = '/vendor/ort/'; ort.env.wasm.numThreads = self.crossOriginIsolated ? Math.min(4, navigator.hardwareConcurrency || 2) : 1;
         this.ort = ort;
-        const eps = (navigator.gpu && await navigator.gpu.requestAdapter().catch(() => null)) ? ['webgpu', 'wasm'] : ['wasm'];
+        const eps = pref === 'yolo-gpu' && gpu ? ['webgpu', 'wasm'] : ['wasm'];
         let lastErr;
         for (const ep of eps) { ort.env.wasm.proxy = ep === 'wasm'; /* CPU inference in a worker keeps the UI responsive (proxy is WASM-only) */ try { this.session = await ort.InferenceSession.create('/models/yolo11n.onnx', { executionProviders: [ep], graphOptimizationLevel: 'all' }); this.ep = ep; break; } catch (e) { lastErr = e instanceof Error ? e : new Error(String(e)); console.warn('ORT', ep, e); } }
         if (!this.session) throw lastErr;
         this.kind = 'YOLO11n'; this.status = `YOLO11n (${this.ep})`; return this.kind;
       } catch (e) {
         console.warn('YOLO unavailable:', e.message);
-        try {
-          await loadScript('/vendor/tfjs/tf.min.js'); await loadScript('/vendor/coco-ssd/coco-ssd.min.js');
-          await window.tf.ready(); this.coco = await window.cocoSsd.load({ base: 'lite_mobilenet_v2' });
-          this.kind = 'COCO-SSD'; this.status = 'COCO-SSD fallback (weaker; YOLO: ' + e.message + ')'; return this.kind;
-        } catch (e2) { this.status = 'NO DETECTOR: ' + e2.message; this.kind = null; this.loading = null; throw e2; }
+        try { if (this.coco) throw new Error('COCO-SSD also failed'); return await coco('fallback, YOLO: ' + e.message); }
+        catch (e2) { this.status = 'NO DETECTOR: ' + e2.message; this.kind = null; this.loading = null; throw e2; }
       }
     })();
     return this.loading;
