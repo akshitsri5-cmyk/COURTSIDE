@@ -37,7 +37,10 @@ test('pairing by QR link and by code, live WebRTC video, phone + dashboard recon
     await p1.waitForFunction(() => document.getElementById('state').textContent === 'LIVE', null, { timeout: 20000 });
     await waitLive(dash, 1);
     // phone 2 via 6-digit code
-    const p2 = await ctx.newPage(); await p2.goto(BASE + '/camera.html'); await p2.fill('#code', code); await p2.click('#join');
+    // phone 2 joins from the MAIN page by typing the code (no QR)
+    const phoneCtx = await b.newContext({ permissions: ['camera'] }); // a separate device
+    const p2 = await phoneCtx.newPage(); await p2.goto(BASE); await p2.click('#joinTop'); await p2.fill('#joinCode', code); await p2.click('#joinBtn');
+    await p2.waitForURL(/camera\.html\?code=\d{6}/); assert.equal(await p2.inputValue('#code'), code); await p2.click('#join');
     await waitLive(dash, 2); const ids = await liveCams(dash); assert.equal(ids.length, 2);
     assert.equal(await dash.locator('.camera-card').count(), 2);
     // frames really flow: video time advances on the dashboard
@@ -93,6 +96,6 @@ test('automatic half-court calibration (no clicks) on a (synthetic) court video 
     const s = res.w / 1280, apply = (H, [x, y]) => { const w = H[2][0] * x + H[2][1] * y + H[2][2]; return [(H[0][0] * x + H[0][1] * y + H[0][2]) / w, (H[1][0] * x + H[1][1] * y + H[1][2]) / w]; };
     const err = Math.min(...[[1, 1]].map(([a, bb]) => /* half-court canonical frame: NO symmetry tolerance */ { let e = 0, n = 0; for (const p of [[8.2, 2.45], [14, -7.5], [5.675, 0], [10, -4]]) { const q = apply(res.H, [a * p[0], bb * p[1]]), g = apply(cam.H, p); e += Math.hypot(q[0] - g[0] * s, q[1] - g[1] * s); n++; } return e / n; }));
     assert.ok(err < 4, 'calibration error ' + err.toFixed(2) + ' px'); assert.ok(res.rel && Math.abs(res.h - 7) < 0.8, 'camera height ' + res.h);
-    assert.equal(await dash.evaluate(() => document.getElementById('calCount').textContent), '1 / 1');
+    await dash.waitForFunction(() => document.getElementById('calCount').textContent === '1 / 1', null, { timeout: 5000 });
   } finally { await b.close(); }
 });

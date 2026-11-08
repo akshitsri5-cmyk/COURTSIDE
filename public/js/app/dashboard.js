@@ -73,6 +73,10 @@ function renderPairing() {
   $('hostMessage').textContent = sel.value.startsWith('http:') ? 'Warning: phones need an https:// address for camera access.' : 'Ready. Each phone that scans this joins as a new camera.';
 }
 $('baseSel').onchange = renderPairing; $('rotateCode').onclick = () => sig.send({ type: 'rotate-code' });
+// join another referee device's match as a camera by typing its 6-digit code (no QR needed)
+$('joinTop').onclick = () => { $('join-panel').scrollIntoView({ behavior: 'smooth' }); $('joinCode').focus(); };
+$('joinBtn').onclick = () => { const c = $('joinCode').value.trim(); if (!/^\d{6}$/.test(c)) { $('joinMsg').textContent = 'Enter the 6-digit code from the referee device.'; return; } location.href = '/camera.html?code=' + c; };
+$('joinCode').onkeydown = e => { if (e.key === 'Enter') $('joinBtn').click(); };
 $('newPair').onclick = () => $('pair-panel').scrollIntoView({ behavior: 'smooth' });
 $('newMatch').onclick = () => { if (!confirm('Start a new match? Paired phones must pair again.')) return; store.set('cs-host', null); location.reload(); };
 
@@ -315,7 +319,7 @@ async function autoCalibrateTick() {
       const cc = analyzer.setCalibration(id, calib);
       if (p.lastThumb) p.health.setReference(p.lastThumb, 96, 54); p.health.noteCourtFit(r.fraction, true);
       store.set(`cs-calib-${S.match?.matchId}-${id}`, { ...calib, refThumb: p.lastThumb ? Array.from(p.lastThumb) : null, fit: r.fraction });
-      p.courtState = `auto ✓ ${Math.round(r.fraction * 100)}%${cc.rims.length ? ' · rim found' : ''}`;
+      p.courtState = `auto ✓ ${Math.round(r.fraction * 100)}%${cc.rims.length ? ' · rim found' : ''}`; updateStats();
       timeline(`${cm.cams.get(id)?.label || id}: court found automatically (${Math.round(r.fraction * 100)}% of visible lines matched${cc.rims.length ? ', rim located' : ''}).`);
     } catch (e) { p.courtState = 'court detection error: ' + e.message; }
     finally { S.autoBusy = false; }

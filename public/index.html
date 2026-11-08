@@ -12,6 +12,7 @@
   <button class="primary" id="addLocal">＋ Camera on this device</button>
   <select id="localCamSel" style="max-width:200px"><option value="">Default camera</option></select>
   <button class="secondary" id="newPair">＋ Pair a phone (QR)</button>
+  <button id="joinTop">Join as camera (code)</button>
   <label class="tag"><input type="checkbox" id="analysisOn" checked> AI ANALYSIS</label>
   <label class="tag">FPS <select id="fpsSel" style="width:auto"><option>5</option><option selected>10</option><option>15</option><option>20</option></select></label>
   <label class="tag"><input type="checkbox" id="poseOn" checked> POSE</label>
@@ -71,6 +72,14 @@
   <div class="timeline" id="timeline"></div>
  </section>
 </div>
+<section class="panel pad" id="join-panel" style="margin-top:17px">
+ <div class="row-between"><strong class="tag">② USE THIS PHONE AS A CAMERA</strong><span class="live">ENTER THE CODE SHOWN ON THE REFEREE DEVICE</span></div>
+ <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px">
+  <input id="joinCode" class="big-input" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="6-digit code" style="max-width:260px;margin:0">
+  <button class="primary" id="joinBtn">Join as camera</button>
+ </div>
+ <div class="message" id="joinMsg"></div>
+</section>
 <section class="panel pad" id="pair-panel" style="margin-top:17px">
  <div class="row-between"><strong class="tag">PAIR A PHONE CAMERA</strong><button class="sm" id="rotateCode">New code</button></div>
  <div class="pair-grid" style="margin-top:10px">
