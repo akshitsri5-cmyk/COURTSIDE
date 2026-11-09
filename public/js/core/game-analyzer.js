@@ -12,6 +12,7 @@ import { PossessionEstimator } from './possession.js';
 import { ActionRecognizer } from './action-recognition.js';
 import { RuleEngine } from './rule-engine.js';
 import { FoulDetector } from './foul-detection.js';
+import { AppearanceLinker } from './appearance-linker.js';
 
 /** Associate pose skeletons with person detections (keypoint containment), returns dets with .pose. */
 export function attachPoses(dets, poses) {
@@ -40,6 +41,7 @@ export class GameAnalyzer {
     this.fouls = new FoulDetector({ cfg: ruleset, model });
     this.reversalCursor = new Map(); this.lastTick = null; this.tickTimes = []; this.lastTeamUpdate = 0; this.prevPossTeam = null;
     this.lastState = null; this.trackerOpts = {};
+    this.linker = new AppearanceLinker({ maxIds: ruleset.oneOnOne ? 2 : 8 }); // uncalibrated cross-camera identity
   }
   camera(cam) {
     if (!this.cams.has(cam)) this.cams.set(cam, { tracker: new PlayerTracker({ idPrefix: cam + '-', ...this.trackerOpts }), ball: new BallTracker(), calib: null, lastT: null, enabled: true });
@@ -75,6 +77,7 @@ export class GameAnalyzer {
   processCameraFrame(cam, t, det) {
     const c = this.camera(cam); if (!c.enabled) return null;
     const tracks = c.tracker.update(det.persons || [], t);
+    this.linker.update(cam, tracks);
     const ball = c.ball.update(det.balls || [], t);
     c.lastT = t;
     return { tracks, ball };
@@ -152,7 +155,7 @@ export class GameAnalyzer {
     const actions = this.actions.update(t, poss, players, ball, camsInfo);
     for (const a of actions) this.fouls.noteAction(a);
     const ruleAlerts = this.rules.update(t, actions, poss, players, { fps: this.analysisFps(), possConfidence: poss.confidence });
-    const foulAlerts = this.fouls.update(t, players, poss);
+    const foulAlerts = this.fouls.update(t, players, poss, { fps: this.cameraFps() });
     if (this.clock && poss.changed && poss.team !== null && poss.team !== undefined) {
       const reb = actions.find(a => a.type === 'rebound');
       this.clock.onPossessionChange(poss.team, this.prevPossTeam, { offensiveReboundAfterRim: !!(reb && reb.offensive) });
@@ -175,5 +178,7 @@ export class GameAnalyzer {
     }
     this.lastSideSeen = { 0: act.some(g => g.team === 0), 1: act.some(g => g.team === 1) };
   }
+  /** Per-camera analysed frame rate (detections per second), the rate that limits temporal rules. */
+  cameraFps() { let best = 0; for (const c of this.cams.values()) { const h = c.tracker.tracks.find(t => t.history.length > 3)?.history; if (h) { const n = h.length; best = Math.max(best, (n - 1) / Math.max(1e-3, h[n - 1].t - h[0].t)); } } return best || 10; }
   analysisFps() { const T = this.tickTimes; return T.length > 2 ? (T.length - 1) / (T[T.length - 1] - T[0]) : 0; }
 }

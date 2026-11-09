@@ -152,3 +152,8 @@ test('1v1 half court: two players in IDENTICAL clothes get opposite sides (A/B) 
   const ids = Object.keys(sides); assert.equal(ids.length, 2);
   assert.deepEqual(ids.map(i => [...sides[i]]).map(x => x.length), [1, 1], 'sides never flip'); assert.notEqual([...sides[ids[0]]][0], [...sides[ids[1]]][0]);
 });
+
+test('fouls are still detected at a low analysis rate (3 fps, CPU-only laptops)', () => {
+  const r = run(new GameAnalyzer({ ruleset: FIBA }), plays.contactPlay('charge').sc, { t1: 4.5, fps: 3 });
+  assert.ok(r.alerts.some(a => a.type === 'charging_foul' || a.type === 'personal_foul' || a.type === 'blocking_foul'), r.alerts.map(a => a.type).join() || 'no alert');
+});

@@ -1,5 +1,6 @@
 // Downloads the model weights COURTSIDE uses into public/models/. Run: npm run models
 // - yolo11n.onnx  (Ultralytics YOLO11n, COCO 80 classes; AGPL-3.0 licence — check it fits your use)
+// - efficientdet_lite2.tflite (Google MediaPipe object detector, Apache-2.0) — default person/ball detector
 // - pose_landmarker_lite.task / pose_landmarker_full.task (Google MediaPipe, Apache-2.0)
 import fs from 'node:fs';
 import path from 'node:path';
@@ -7,6 +8,8 @@ import { fileURLToPath } from 'node:url';
 const dir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../public/models');
 const MODELS = [
   ['yolo11n.onnx', 'https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11n.onnx'],
+  ['efficientdet_lite2.tflite', 'https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite2/float16/latest/efficientdet_lite2.tflite'],
+  ['efficientdet_lite0.tflite', 'https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/float16/latest/efficientdet_lite0.tflite'],
   ['pose_landmarker_lite.task', 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task'],
   ['pose_landmarker_full.task', 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task'],
 ];

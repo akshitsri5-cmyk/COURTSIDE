@@ -48,12 +48,20 @@ export class BallTracker {
       }
       if (chosen) maneuver = true;
     }
+    if (!chosen && (this.state === 'lost' || !this.kf)) { // acquisition from a MOVING orange blob (detector missed the ball)
+      const prev = this.prevColour || [], dtc = t - (this.prevColourT ?? -1);
+      if (dtc > 0 && dtc < 0.6) for (const c of cands.filter(c => c.source === 'colour' && c.score >= 0.5)) {
+        const p = prev.find(q => Math.max(q.r, c.r) / Math.min(q.r, c.r) < 1.5 && Math.hypot(q.x - c.x, q.y - c.y) > 1.5 * c.r && Math.hypot(q.x - c.x, q.y - c.y) < 60 * c.r * dtc);
+        if (p) { chosen = c; break; }
+      }
+    }
+    this.prevColour = cands.filter(c => c.source === 'colour'); this.prevColourT = t;
     if (!chosen) { // global (re)acquisition: best model detection anywhere
       const strong = cands.filter(c => c.source !== 'colour' && c.score >= o.reacquireScore).sort((a, b) => b.score - a.score);
       if (strong.length && (this.state === 'lost' || !this.kf)) chosen = strong[0];
     }
     if (chosen) {
-      if (!this.kf || this.state === 'lost') { this.kf = new KF2D([chosen.x, chosen.y], { order: 3, q: o.q, r: o.r, p0: 25, pv0: 1e6 }); this.prevVy = 0; }
+      if (!this.kf || this.state === 'lost') { this.kf = new KF2D([chosen.x, chosen.y], { order: 3, q: o.q, r: o.r, p0: 25, pv0: 1e6 }); this.prevVy = 0; this.lastMotionT = chosen.source === 'colour' ? t : this.lastMotionT; this.history = []; }
       else if (maneuver) {
         const dt = Math.max(1e-3, t - this.lastMeas.t), v0 = [(chosen.x - this.lastMeas.x) / dt, (chosen.y - this.lastMeas.y) / dt];
         this.kf = new KF2D([chosen.x, chosen.y], { order: 3, q: o.q, r: o.r, p0: o.r, pv0: 4e4, v0: 0 });
@@ -64,7 +72,10 @@ export class BallTracker {
       this.lastSeen = t; this.state = 'tracking'; this.coasted = 0; this.lastMeas = { x: chosen.x, y: chosen.y, t };
       if (chosen.source !== 'colour') this.lastModelT = t;
       // colour blobs may only bridge short detector gaps (motion blur); never sustain a track on their own
-      if (t - (this.lastModelT ?? t) > o.maxColourOnlySec) { this.state = 'lost'; this.kf = null; this.desc = null; return null; }
+      // colour blobs may sustain a track on their own only while the ball MOVES (a static orange toy/cone is dropped)
+      if (chosen.source === 'colour') { const H = this.history.filter(h => h.measured && t - h.t <= 0.8); const moved = H.length ? Math.max(...H.map(h => Math.hypot(h.u - chosen.x, h.v - chosen.y))) : 0; if (moved > 2 * this.radius) this.lastMotionT = t; }
+      else this.lastMotionT = t;
+      if (t - Math.max(this.lastModelT ?? -Infinity, this.lastMotionT ?? -Infinity) > o.maxColourOnlySec) { this.state = 'lost'; this.kf = null; this.desc = null; return null; }
     } else if (this.kf && this.state !== 'lost') {
       this.coasted = t - this.lastSeen;
       this.state = this.coasted > o.maxCoastSec ? 'lost' : 'occluded';
@@ -103,15 +114,18 @@ export class BallTracker {
  * Colour-based ball candidates (orange/brown leather) within an optional search window.
  * img: {width,height,data}. Returns [{x,y,r,score,source:'colour'}]. Uses a coarse grid + connected components.
  */
-export function findBallCandidates(img, { window = null, step = 2, minR = 3, maxR = 60, hueLo = 5, hueHi = 35, minSat = 0.45, minVal = 0.25 } = {}) {
+/** colour: 'orange' (classic leather), 'white' (white/grey balls, e.g. Jordan outdoor balls) or 'both'. */
+export function findBallCandidates(img, { window = null, step = 2, minR = 3, maxR = 60, hueLo = 5, hueHi = 35, minSat = 0.45, minVal = 0.25, colour = 'orange' } = {}) {
   const W = img.width, H = img.height;
   const [x0, y0, x1, y1] = window ? [Math.max(0, window[0] | 0), Math.max(0, window[1] | 0), Math.min(W, window[2] | 0), Math.min(H, window[3] | 0)] : [0, 0, W, H];
   const gw = Math.ceil((x1 - x0) / step), gh = Math.ceil((y1 - y0) / step); if (gw <= 0 || gh <= 0) return [];
   const m = new Uint8Array(gw * gh);
   for (let gy = 0; gy < gh; gy++) for (let gx = 0; gx < gw; gx++) {
     const x = x0 + gx * step, y = y0 + gy * step, i = (y * W + x) * 4, r = img.data[i], g = img.data[i + 1], b = img.data[i + 2];
-    const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn; if (!d || mx !== r) continue;
-    const h = ((g - b) / d) * 60, s = d / mx, v = mx / 255;
+    const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn, s = mx ? d / mx : 0, v = mx / 255;
+    if (colour !== 'orange' && s < 0.22 && v > 0.55 && v < 0.98) { m[gy * gw + gx] = 1; continue; } // white/grey ball (not pure-white paint glare)
+    if (colour === 'white' || !d || mx !== r) continue;
+    const h = ((g - b) / d) * 60;
     if (h >= hueLo && h <= hueHi && s >= minSat && v >= minVal) m[gy * gw + gx] = 1;
   }
   const out = [], lab = new Int32Array(gw * gh), stack = [];
@@ -128,7 +142,7 @@ export function findBallCandidates(img, { window = null, step = 2, minR = 3, max
     if (r < minR || r > maxR) continue;
     const aspect = Math.max(bw, bh) / Math.min(bw, bh), fill = n * step * step / (Math.PI * r * r);
     // a ball is round (motion blur stretches it up to ~2.5:1) and fills its disc
-    if (aspect > 2.5 || fill < 0.35) continue;
+    if (aspect > (colour === 'orange' ? 2.5 : 1.8) || fill < (colour === 'orange' ? 0.35 : 0.55)) continue; // white: stricter roundness (lines, shoes, shirts)
     const score = Math.max(0, Math.min(1, (1 - (aspect - 1) / 2.5) * Math.min(1, fill) * 0.9));
     out.push({ x: x0 + (sx / n) * step + step / 2, y: y0 + (sy / n) * step + step / 2, r, score, source: 'colour' });
   }

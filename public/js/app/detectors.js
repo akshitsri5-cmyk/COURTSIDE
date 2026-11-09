@@ -6,7 +6,7 @@ import { letterbox, decodeYolo, COCO } from '../core/yolo-decode.js';
 
 export class PersonBallDetector {
   constructor() { this.kind = null; this.status = 'not loaded'; this.session = null; this.coco = null; this.busy = false; this.inputSize = 640; this.canvas = document.createElement('canvas'); this.canvas.width = this.canvas.height = 640; }
-  /** pref: 'auto'/'coco' (COCO-SSD, TF.js WebGL), 'yolo' (YOLO11n on CPU/WASM, verified) or 'yolo-gpu' (YOLO11n on WebGPU, EXPERIMENTAL: produced broken boxes on a real GPU). */
+  /** pref: 'auto'/'effdet' (MediaPipe EfficientDet-Lite2, GPU), 'coco' (COCO-SSD, TF.js WebGL), 'yolo' (YOLO11n on CPU/WASM, verified) or 'yolo-gpu' (YOLO11n on WebGPU, EXPERIMENTAL: produced broken boxes on a real GPU). */
   async load(pref = 'auto') {
     if (this.kind) return this.kind;
     if (this.loading) return this.loading;
@@ -17,6 +17,16 @@ export class PersonBallDetector {
         await window.tf.ready(); this.coco = await window.cocoSsd.load({ base: 'lite_mobilenet_v2' });
         this.kind = 'COCO-SSD'; this.status = `COCO-SSD (${window.tf.getBackend()}${why ? '; ' + why : ''})`; return this.kind;
       };
+      // default: Google MediaPipe EfficientDet-Lite2 on the GPU (same runtime as the pose model, robust on laptops)
+      if (pref === 'auto' || pref === 'effdet') {
+        try {
+          visionMod = visionMod || await import('/vendor/tasks-vision/vision_bundle.mjs');
+          fileset = fileset || await visionMod.FilesetResolver.forVisionTasks('/vendor/tasks-vision/wasm');
+          const o = d => ({ baseOptions: { modelAssetPath: '/models/efficientdet_lite2.tflite', delegate: d }, runningMode: 'IMAGE', scoreThreshold: 0.12, maxResults: 40, categoryAllowlist: ['person', 'sports ball'] });
+          let dev = 'GPU'; try { this.effdet = await visionMod.ObjectDetector.createFromOptions(fileset, o('GPU')); } catch { dev = 'CPU'; this.effdet = await visionMod.ObjectDetector.createFromOptions(fileset, o('CPU')); }
+          this.kind = 'EfficientDet'; this.status = `EfficientDet-Lite2 (${dev})`; return this.kind;
+        } catch (e) { console.warn('EfficientDet unavailable:', e.message); if (pref === 'effdet') { this.status = 'NO DETECTOR: ' + e.message; this.loading = null; throw e; } }
+      }
       if (pref === 'coco' || pref === 'auto') {
         try { return await coco(''); }
         catch (e) { console.warn('COCO-SSD unavailable:', e.message); if (pref === 'coco') { this.status = 'NO DETECTOR: ' + e.message; this.loading = null; throw e; } }
@@ -40,13 +50,16 @@ export class PersonBallDetector {
     })();
     return this.loading;
   }
+  async switchTo(pref) { await this.queue; try { this.effdet?.close(); } catch { } this.effdet = null; this.session = null; this.coco = null; this.kind = null; this.loading = null; return this.load(pref); }
   /** Serialised: one inference at a time across all camera pipelines (shared session). */
   detect(source) { const run = () => this._detect(source); this.queue = (this.queue || Promise.resolve()).then(run, run); return this.queue; }
   /** source: canvas. Returns {persons:[{bbox,score}], balls:[{x,y,r,score,source:'model'}], ms}. */
   async _detect(source) {
     const t0 = performance.now(), w = source.width, h = source.height;
     let dets = [];
-    if (this.session) {
+    if (this.effdet) {
+      dets = (this.effdet.detect(source).detections || []).map(d => { const c = d.categories[0], b = d.boundingBox; return { cls: c.categoryName === 'person' ? COCO.person : COCO.sportsBall, score: c.score, bbox: [b.originX, b.originY, b.width, b.height] }; });
+    } else if (this.session) {
       const S = this.inputSize, lb = letterbox(w, h, S), c = this.canvas.getContext('2d', { willReadFrequently: true });
       c.fillStyle = 'rgb(114,114,114)'; c.fillRect(0, 0, S, S); c.drawImage(source, lb.px, lb.py, lb.nw, lb.nh);
       const px = c.getImageData(0, 0, S, S).data, n = S * S, f = new Float32Array(3 * n);
@@ -103,3 +116,23 @@ export class PoseEstimator {
 }
 
 export function loadScript(src) { return new Promise((res, rej) => { if (document.querySelector(`script[src="${src}"]`)) return res(); const s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = () => rej(new Error('failed to load ' + src)); document.head.append(s); }); }
+
+/**
+ * Default detector: EfficientDet + pose in a background worker (see vision-worker.js). Same interface as
+ * PersonBallDetector, plus `withPose` (persons already carry their pose) — the main thread only draws.
+ */
+export class WorkerVision {
+  constructor() { this.kind = null; this.status = 'not loaded'; this.withPose = true; this.pending = new Map(); this.seq = 0; }
+  call(msg, transfer = []) { return new Promise((res, rej) => { const id = ++this.seq; this.pending.set(id, { res, rej }); this.w.postMessage({ ...msg, id }, transfer); }); }
+  async load(model = 'efficientdet_lite2') {
+    if (this.kind && this.model === model) return this.kind;
+    if (!this.w) { this.w = new Worker('/js/app/vision-worker.js'); this.w.onmessage = e => { const p = this.pending.get(e.data.id); this.pending.delete(e.data.id); e.data.ok ? p.res(e.data.result) : p.rej(new Error(e.data.error)); }; }
+    this.status = 'loading model…'; this.status = await this.call({ cmd: 'init', detModel: model }); this.model = model; this.kind = 'EfficientDet'; return this.kind;
+  }
+  switchTo(model) { this.kind = null; return this.queue = (this.queue || Promise.resolve()).then(() => this.load(model)); }
+  /** source: canvas. One request at a time across all cameras (the worker is single-threaded anyway). */
+  detect(source, { pose = true } = {}) {
+    const run = async () => { const t0 = performance.now(); const bmp = await createImageBitmap(source); const r = await this.call({ cmd: 'detect', bmp, pose }, [bmp]); return { ...r, ms: performance.now() - t0 }; };
+    this.queue = (this.queue || Promise.resolve()).then(run, run); return this.queue;
+  }
+}

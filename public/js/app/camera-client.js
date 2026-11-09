@@ -3,7 +3,7 @@
 import { SignalClient } from './signal-client.js';
 const $ = id => document.getElementById(id);
 const qs = new URLSearchParams(location.search);
-let sig = null, pc = null, dc = null, stream = null, facing = 'environment', creds = null, ice = null, restartTimer = null, pendingIce = [], wakeLock = null, hostOnline = false, peerStartedAt = 0, offerNumber = 0, activeOffer = null;
+let restarts = 0, sig = null, pc = null, dc = null, stream = null, facing = 'environment', creds = null, ice = null, restartTimer = null, pendingIce = [], wakeLock = null, hostOnline = false, peerStartedAt = 0, offerNumber = 0, activeOffer = null;
 if (qs.get('code')) $('code').value = qs.get('code');
 const msg = (t, err) => { $('msg').textContent = t; $('msg').style.color = err ? '#ff9292' : ''; };
 const setState = (t, ok) => { $('state').textContent = t; $('state').className = 'pill ' + (ok ? 'ok' : 'warn'); };
@@ -42,7 +42,14 @@ $('join').onclick = async () => {
     sig.on('kicked', () => { setState('REMOVED BY REFEREE'); leave(); });
     sig.on('close', () => setState('RECONNECTING…'));
     // Recover when an offer/answer or host reload notification was lost. The same camera ID is retained.
-    setInterval(() => { if (hostOnline && sig.connected && stream && (!pc || (pc.connectionState !== 'connected' && Date.now() - peerStartedAt > 9000))) startPeer(); }, 3000);
+    // watchdog: only restart after a real failure, or no progress for a long time (relay/mobile ICE can take >10 s),
+    // with back-off — restarting too eagerly made a second phone loop forever
+    setInterval(() => {
+      if (!hostOnline || !sig.connected || !stream) return;
+      const st = pc?.connectionState, waited = Date.now() - peerStartedAt, limit = Math.min(60000, 25000 * 2 ** Math.max(0, restarts - 1));
+      if (!pc || st === 'failed' || st === 'closed' || (st !== 'connected' && waited > limit)) { restarts++; startPeer(); }
+      if (st === 'connected') restarts = 0;
+    }, 3000);
     requestWake(); setInterval(() => { $('sync').textContent = sig.clock.ready ? '±' + Math.round(sig.clock.uncertainty) + ' ms' : '…'; }, 1000);
   } catch (e) { msg('Could not start: ' + e.message, true); }
 };
@@ -61,13 +68,13 @@ function startPeer() {
   const peer = pc = new RTCPeerConnection({ iceServers: ice?.iceServers || [] });
   const offerId = activeOffer = `${Date.now()}-${++offerNumber}`;
   const track = stream.getVideoTracks()[0], sender = pc.addTrack(track, stream);
-  try { const p = sender.getParameters(); p.encodings = [{ maxBitrate: 2500000, maxFramerate: 30 }]; p.degradationPreference = 'maintain-framerate'; sender.setParameters(p).catch(() => { }); } catch { }
+  try { const p = sender.getParameters(); p.encodings = [{ maxBitrate: 1800000, maxFramerate: 30 }]; /* fits two phones on mobile uplinks / one relay */ p.degradationPreference = 'maintain-framerate'; sender.setParameters(p).catch(() => { }); } catch { }
   dc = pc.createDataChannel('ctl'); dc.onopen = () => sendCaps(); dc.onmessage = e => command(JSON.parse(e.data));
   peer.onicecandidate = e => e.candidate && peer === pc && sig.send({ type: 'signal', data: { candidate: e.candidate, offerId } });
   pc.onconnectionstatechange = () => {
     if (peer !== pc) return;
     const s = peer.connectionState; setState(s === 'connected' ? 'LIVE' : s.toUpperCase(), s === 'connected');
-    if (s === 'failed') scheduleRestart(500); if (s === 'disconnected') scheduleRestart(4000);
+    if (s === 'failed') scheduleRestart(500); if (s === 'disconnected') scheduleRestart(8000);
     if (s === 'connected') clearTimeout(restartTimer);
   };
   (async () => { try { const o = await peer.createOffer(); if (peer !== pc) return; await peer.setLocalDescription(o); if (peer === pc) sig.send({ type: 'signal', data: { sdp: peer.localDescription, offerId } }); } catch (e) { if (peer === pc) { console.warn('offer', e); scheduleRestart(500); } } })();
@@ -105,3 +112,24 @@ $('leave').onclick = () => { if (creds) { localStorage.removeItem('cs-cam-' + cr
 function leave() { hostOnline = false; clearTimeout(restartTimer); try { pc?.close(); } catch { } sig?.close(); stream?.getTracks().forEach(t => t.stop()); wakeLock?.release?.(); $('livePanel').hidden = true; $('joinPanel').hidden = false; msg('Disconnected.'); }
 async function requestWake() { try { wakeLock = await navigator.wakeLock?.request('screen'); } catch { } document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') navigator.wakeLock?.request('screen').then(w => wakeLock = w).catch(() => { }); }); }
 setInterval(async () => { if (!navigator.getBattery || dc?.readyState !== 'open') return; const b = await navigator.getBattery(); send({ type: 'battery', level: b.level, charging: b.charging }); }, 30000);
+
+// ---- dashcam: full-quality recording on the phone itself (independent of the network) ----
+let localRec = null, localChunks = [], localStart = null;
+$('dashcam').onclick = () => {
+  if (!stream) return;
+  if (!localRec) {
+    const mime = ['video/mp4', 'video/webm;codecs=vp9', 'video/webm'].find(m => window.MediaRecorder?.isTypeSupported?.(m));
+    if (!mime) { msg('Recording is not supported in this browser.', true); return; }
+    localChunks = []; localStart = new Date(); localRec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 6_000_000 });
+    localRec.ondataavailable = e => e.data.size && localChunks.push(e.data); localRec.start(10000);
+    $('dashcam').textContent = '■ Stop & save phone recording'; $('dashcam').classList.add('danger');
+  } else {
+    const r = localRec; localRec = null; r.onstop = () => {
+      const ext = r.mimeType.includes('mp4') ? 'mp4' : 'webm', p2 = n => String(n).padStart(2, '0'), d = localStart;
+      const name = `COURTSIDE_${($('camName').textContent || 'camera').replace(/[^\w]+/g, '_').slice(0, 40)}_${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}_${p2(d.getHours())}-${p2(d.getMinutes())}.${ext}`;
+      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(localChunks, { type: r.mimeType })); a.download = name; document.body.append(a); a.click(); a.remove();
+      msg('Saved ' + name + ' to this phone.');
+    }; r.stop(); $('dashcam').textContent = '● Record on this phone'; $('dashcam').classList.remove('danger');
+  }
+};
+setInterval(() => { if (localRec && localStart) { const s2 = Math.round((Date.now() - localStart) / 1000); $('dashcam').textContent = `■ Stop & save (${Math.floor(s2 / 60)}:${String(s2 % 60).padStart(2, '0')})`; } }, 1000);

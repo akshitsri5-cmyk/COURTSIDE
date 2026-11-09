@@ -21,7 +21,7 @@ const VENDOR = {
   '/vendor/tfjs/': 'node_modules/@tensorflow/tfjs/dist/',
   '/vendor/coco-ssd/': 'node_modules/@tensorflow-models/coco-ssd/dist/',
 };
-const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.wasm': 'application/wasm', '.svg': 'image/svg+xml', '.png': 'image/png', '.onnx': 'application/octet-stream', '.task': 'application/octet-stream', '.bin': 'application/octet-stream', '.webm': 'video/webm', '.ico': 'image/x-icon' };
+const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.mjs': 'text/javascript', '.cjs': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.wasm': 'application/wasm', '.svg': 'image/svg+xml', '.png': 'image/png', '.onnx': 'application/octet-stream', '.task': 'application/octet-stream', '.tflite': 'application/octet-stream', '.bin': 'application/octet-stream', '.webm': 'video/webm', '.ico': 'image/x-icon' };
 
 export function lanAddresses() { return Object.values(os.networkInterfaces()).flat().filter(i => i && i.family === 'IPv4' && !i.internal).map(i => i.address); }
 
@@ -55,6 +55,22 @@ export function createApp({ registry, httpsPort = HTTPS_PORT }) {
       if (p === '/api/info') return json(200, { lan: lanAddresses(), httpsPort, time: Date.now(), publicUrl: env.PUBLIC_URL || null });
       if (p === '/api/ice') return json(200, { iceServers: iceServers() });
       if (p === '/api/qr') { const svg = await QRCode.toString(String(url.searchParams.get('text') || '').slice(0, 1000), { type: 'svg', margin: 1, errorCorrectionLevel: 'M' }); res.writeHead(200, { 'content-type': 'image/svg+xml' }); return res.end(svg); }
+      // ---- Apple Watch: live state from the dashboard + a tiny no-JavaScript watch page ----
+      const lm = p.match(/^\/api\/matches\/([\w-]+)\/live$/);
+      if (lm && req.method === 'POST') {
+        const m = registry.matches.get(lm[1]); if (!m) return json(404, { error: 'no match' });
+        if (req.headers['x-host-token'] !== m.hostToken) return json(403, { error: 'forbidden' });
+        const body = JSON.parse((await readBody(req, 200e3)).toString());
+        m.live = { ...body.state, updated: Date.now() };
+        if (body.ntfyTopic && Array.isArray(body.notify)) for (const n of body.notify.slice(0, 10)) notify(body.ntfyTopic, n).catch(() => { });
+        return json(200, { ok: true });
+      }
+      const wm = p.match(/^\/watch\/([\w-]+)$/);
+      if (wm) {
+        const m = registry.matches.get(wm[1]);
+        if (!m || url.searchParams.get('k') !== m.watchKey) return json(403, { error: 'invalid watch link' });
+        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' }); return res.end(watchPage(m));
+      }
       const mm = p.match(/^\/api\/matches\/([\w-]+)\/(log|clips)(?:\/([\w.-]+))?$/);
       if (mm) {
         const m = registry.matches.get(mm[1]); if (!m) return json(404, { error: 'no match' });
@@ -84,6 +100,30 @@ export function createApp({ registry, httpsPort = HTTPS_PORT }) {
       fs.createReadStream(file).pipe(res);
     } catch (e) { json(500, { error: e.message }); }
   };
+}
+
+const esc = v => String(v ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const fmt = ms => { ms = Math.max(0, ms); if (ms < 60000) return (ms / 1000).toFixed(1); const s = Math.ceil(ms / 1000); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
+/** Server-rendered watch view (watchOS WebKit: keep it static HTML + meta refresh, no scripts). */
+export function watchPage(m) {
+  const L = m.live, now = Date.now();
+  if (!L) return `<!doctype html><meta name=viewport content="width=device-width,initial-scale=1"><meta http-equiv=refresh content=3><body style="background:#000;color:#ccc;font:14px -apple-system,sans-serif;text-align:center;padding:12px">COURTSIDE<br><br>Waiting for the referee dashboard…</body>`;
+  const age = (now - L.updated) / 1000, run = L.clock?.running && age < 30;
+  const clock = fmt((L.clock?.remainingMs ?? 0) - (run ? now - L.updated : 0)), shot = Math.max(0, Math.ceil(((L.clock?.shotMs ?? 0) - (run ? now - L.updated : 0)) / 1000));
+  const calls = (L.calls || []).slice(0, 4).map(c => `<div class=c><b style="color:${c.decision === 'confirmed' ? '#ff7777' : c.decision === 'rejected' ? '#777' : '#ffd18c'}">${esc(c.label)}</b> ${esc(c.who || '')}<br><small>${esc(c.when || '')} · ${esc(c.state || '')}</small></div>`).join('') || '<div class=c><small>No calls</small></div>';
+  return `<!doctype html><html><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><meta http-equiv=refresh content=3><title>COURTSIDE</title>
+<style>body{margin:0;background:#000;color:#f4f7f2;font:13px -apple-system,system-ui,sans-serif;text-align:center;padding:6px}.s{display:flex;justify-content:space-around;align-items:center}.n{font-size:10px;color:#91a39c}.p{font-size:34px;font-weight:800}.t{font-size:26px;font-weight:800;font-variant-numeric:tabular-nums}.sh{color:#ff914d;font-weight:800}.c{border-top:1px solid #222;padding:4px 0;text-align:left}small{color:#91a39c}.w{color:#ffd18c;font-size:11px}</style></head><body>
+<div class=s><div><div class=n>${esc(L.names?.home || 'HOME')}</div><div class=p>${esc(L.score?.home ?? 0)}</div></div><div class=n>vs</div><div><div class=n>${esc(L.names?.away || 'AWAY')}</div><div class=p>${esc(L.score?.away ?? 0)}</div></div></div>
+<div class=t>${clock}</div><div><span class=sh>${shot}</span> <small>· ${esc(L.period || '')} · ${run ? '▶' : '❚❚'}</small></div>
+${L.gameOver ? `<div class=w>${esc(L.gameOver)}</div>` : ''}<div class=n>${esc(L.possession || '')}</div>
+${calls}
+<div class=n>📷 ${esc(L.cams || '')}${L.recording ? ' · ● REC' : ''}</div>${age > 10 ? `<div class=w>dashboard silent ${Math.round(age)} s</div>` : ''}
+</body></html>`;
+}
+/** Push to the referee's phone/watch via ntfy (free app; iPhone notifications mirror to Apple Watch). */
+async function notify(topic, n) {
+  if (!/^[\w-]{6,64}$/.test(topic)) return;
+  await fetch(`${env.NTFY_URL || 'https://ntfy.sh'}/${topic}`, { method: 'POST', body: String(n.body || '').slice(0, 300), headers: { Title: String(n.title || 'COURTSIDE').replace(/[^\x20-\x7e]/g, '').slice(0, 80), Priority: n.urgent ? 'high' : 'default', Tags: n.urgent ? 'rotating_light' : 'basketball' } });
 }
 
 export function attachWebSocket(server, registry, log) {

@@ -2,7 +2,7 @@
 import { SignalClient } from './signal-client.js';
 import { CameraManager } from './camera-manager.js';
 import { CameraPipeline } from './pipeline.js';
-import { PersonBallDetector } from './detectors.js';
+import { PersonBallDetector, WorkerVision } from './detectors.js';
 import { GameAnalyzer } from '../core/game-analyzer.js';
 import { CourtModel } from '../core/court-model.js';
 import { getRuleset } from '../core/rules/rulesets.js';
@@ -28,7 +28,8 @@ const score = new ScoreManager({ autoMinConfidence: ruleset.analysis.autoScoreMi
 const alerts = new AlertManager();
 let recorder = new MatchRecorder(S.match?.matchId || 'local');
 let analyzer = new GameAnalyzer({ ruleset, model, clock });
-const detector = new PersonBallDetector();
+// default: EfficientDet + pose in a background worker; COCO-SSD / YOLO stay available from the selector
+const detector = ['auto', 'effdet'].includes(store.get('cs-settings', {})?.detector || 'auto') ? new WorkerVision() : new PersonBallDetector();
 const sig = new SignalClient(() => ({ type: 'hello', role: 'host', matchId: S.match?.matchId, hostToken: S.match?.hostToken, name: $('matchName').value || 'Match' }));
 const serverNowMs = () => sig.serverTime();
 const timestamper = new FrameTimestamper(local => local + performance.timeOrigin + sig.clock.offset);
@@ -44,7 +45,7 @@ function timeline(text, kind = 'info') {
 
 // ---------- signalling / match ----------
 sig.on('welcome', m => {
-  S.match = { matchId: m.matchId, hostToken: m.hostToken, code: m.code, joinKey: m.joinKey, name: m.name }; store.set('cs-host', { matchId: m.matchId, hostToken: m.hostToken });
+  S.match = { matchId: m.matchId, hostToken: m.hostToken, code: m.code, joinKey: m.joinKey, name: m.name, watchKey: m.watchKey }; renderWatch(); store.set('cs-host', { matchId: m.matchId, hostToken: m.hostToken });
   recorder.matchId = m.matchId; $('matchName').value = m.name; $('matchTag').textContent = 'MATCH ' + m.name.toUpperCase() + ' · ' + m.matchId;
   for (const c of m.cameras) { const cam = cm.ensure(c.cameraId, c.label, 'PHONE'); cm.setState(cam, c.online ? 'connecting' : 'offline'); }
   renderPairing(); timeline(`Referee station connected to match ${m.name}.`);
@@ -52,7 +53,7 @@ sig.on('welcome', m => {
 sig.on('code', m => { S.match.code = m.code; S.match.joinKey = m.joinKey; renderPairing(); timeline('New pairing code generated.'); });
 sig.on('error', m => { if (m.code === 'bad-token') { store.set('cs-host', null); S.match = null; sig.ws.close(); } $('hostMessage').textContent = m.message || m.code; });
 sig.on('camera-online', m => { cm.onCameraOnline(m); timeline(`${m.label} joined / reconnected.`); });
-sig.on('camera-offline', m => { cm.onCameraOffline(m); timeline(`${cm.cams.get(m.cameraId)?.label || m.cameraId} lost connection — waiting for it to reconnect.`, 'warn'); });
+sig.on('camera-offline', m => { cm.onCameraOffline(m); watchNotify('Camera offline', `${cm.cams.get(m.cameraId)?.label || m.cameraId} lost connection`, true); timeline(`${cm.cams.get(m.cameraId)?.label || m.cameraId} lost connection — waiting for it to reconnect.`, 'warn'); });
 sig.on('signal', m => cm.onSignal(m));
 sig.on('open', () => $('sigStatus').textContent = 'connected'); sig.on('close', () => $('sigStatus').textContent = 'reconnecting…');
 
@@ -108,7 +109,7 @@ function makeCard(c) {
   $('cameraGrid').append(el);
   const card = { el, overlay, showLines: true, hd: true, torch: false }; S.cards.set(c.id, card);
   const calib = store.get(`cs-calib-${S.match?.matchId}-${c.id}`);
-  const p = new CameraPipeline({ cam: c, analyzer, detector, timestamper, recorder, serverNow: serverNowMs, opts: { get fps() { return S.settings.fps; }, get pose() { return S.settings.pose; }, poseModel: '/models/pose_landmarker_lite.task', drawCourt } });
+  const p = new CameraPipeline({ cam: c, analyzer, detector, timestamper, recorder, serverNow: serverNowMs, opts: { get ballColour() { return S.settings.ballColour || 'both'; }, get fps() { return S.settings.fps; }, get cameraCount() { return [...S.pipelines.values()].filter(x => x.enabled).length; }, get pose() { return S.settings.pose; }, poseModel: '/models/pose_landmarker_lite.task', drawCourt } });
   S.pipelines.set(c.id, p);
   if (calib) { analyzer.setCalibration(c.id, calib); if (calib.refThumb) p.health.setReference(Float32Array.from(calib.refThumb), 96, 54); if (calib.fit) p.health.noteCourtFit(calib.fit, true); }
   el.querySelector('.act-cal').onclick = () => openCalibration(c.id);
@@ -178,6 +179,7 @@ function addAlert(al) {
     renderFouls();
   }
   timeline(`ALERT ${a.label} [${a.status === 'flagged' ? 'FLAGGED' : 'NEEDS HUMAN REVIEW'}] ${(a.players || []).join(', ')}`, 'alert');
+  watchNotify((a.autoCalled ? 'CALLED: ' : a.status === 'flagged' ? 'Confirm? ' : 'Review: ') + a.label, `${(a.players || []).join(', ') || 'player ?'} · ${a.gameClock} · evidence ${a.confidence.toFixed(2)}`, a.status === 'flagged');
   const wait = Math.max(0, (a.tEnd ?? a.t + 1) - serverNowMs() / 1000 + LATENCY) * 1000 + 400;
   setTimeout(() => { a.clip = recorder.captureClip(a.id, a.tStart ?? a.t - 3, a.tEnd ?? a.t + 1, null); if (S.selectedAlert === a.id) renderReview(); }, wait);
   renderAlerts();
@@ -230,7 +232,7 @@ function renderFouls() {
 function checkWin() {
   const w = ruleset.winScore; if (!w || S.gameOver) return;
   const side = score.score.home >= w ? 'home' : score.score.away >= w ? 'away' : null; if (!side) return;
-  S.gameOver = true; clock.pause(`${side.toUpperCase()} reached ${w}`); timeline(`GAME OVER — ${side.toUpperCase()} wins ${score.score[side]}–${score.score[side === 'home' ? 'away' : 'home']} (first to ${w}).`, 'score');
+  S.gameOver = true; S.gameOverText = `GAME OVER · ${ruleset.sideNames?.[side] || side.toUpperCase()} wins ${score.score.home}–${score.score.away}`; watchNotify('GAME OVER', `${(ruleset.sideNames?.[side] || side.toUpperCase())} wins ${score.score.home}–${score.score.away}`, true); clock.pause(`${side.toUpperCase()} reached ${w}`); timeline(`GAME OVER — ${side.toUpperCase()} wins ${score.score[side]}–${score.score[side === 'home' ? 'away' : 'home']} (first to ${w}).`, 'score');
 }
 function renderScore() {
   checkWin();
@@ -251,6 +253,28 @@ $('autoClock').onchange = e => clock.autoManage = e.target.checked;
 document.querySelectorAll('[data-call]').forEach(b => b.onclick = () => timeline('MANUAL FLAG: ' + b.dataset.call, 'manual'));
 $('exportLog').onclick = () => { const blob = new Blob([JSON.stringify(logPayload(), null, 1)], { type: 'application/json' }); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `courtside-${S.match?.matchId || 'match'}.json`; a.click(); };
 function logPayload() { return { match: S.match && { id: S.match.matchId, name: S.match.name }, ruleset: ruleset.id, score: score.toJSON(), clock: clock.snapshot(), events: recorder.events, alerts: alerts.alerts.map(({ clip, ...a }) => a) }; }
+// ---------- Apple Watch: live state + wrist notifications ----------
+S.notifyQueue = [];
+function watchNotify(title, body, urgent = false) { if ((S.settings.ntfyTopic || '').length >= 6) S.notifyQueue.push({ title, body, urgent }); }
+score.on(e => { if (e.type === 'score' && e.entry.source !== 'manual') watchNotify(`+${e.entry.points} ${ruleset.sideNames?.[e.entry.side] || e.entry.side.toUpperCase()}`, `Score ${score.score.home}–${score.score.away} · ${fmtClock()}`); });
+function watchUrl() { return S.match?.watchKey ? `${location.origin}/watch/${S.match.matchId}?k=${S.match.watchKey}` : ''; }
+function renderWatch() { const u = watchUrl(); if (!u || !$('watchUrl')) return; $('watchUrl').textContent = u; $('watchQr').innerHTML = `<img alt="Watch link QR" src="/api/qr?text=${encodeURIComponent(u)}">`; }
+async function pushLive() {
+  if (!S.match) return;
+  const SIDEN = ruleset.sideNames || { home: 'HOME', away: 'AWAY' }, st = S.lastState, cams = [...(cm?.cams.values() || [])];
+  const state = { names: SIDEN, score: { ...score.score }, clock: clock.snapshot(), period: $('period').textContent, gameOver: S.gameOverText || null,
+    possession: st?.poss.controller ? `ball: ${teamName(st.poss.team)}` : '', cams: `${cams.filter(c => c.state === 'live').length}/${cams.length} live`, recording: gameRec.active,
+    calls: alerts.alerts.slice(0, 4).map(a => ({ label: a.label, who: (a.players || []).join(', '), when: `${a.gameClock || ''}`, decision: a.decision, state: a.autoCalled && a.decision === 'confirmed' ? 'AUTO-CALLED' : a.decision !== 'pending' ? a.decision : a.status === 'flagged' ? 'confirm?' : 'review' })) };
+  const notify = S.notifyQueue.splice(0);
+  try { await fetch(`/api/matches/${S.match.matchId}/live`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-host-token': S.match.hostToken }, body: JSON.stringify({ state, notify, ntfyTopic: S.settings.ntfyTopic || null }) }); }
+  catch { S.notifyQueue.unshift(...notify); }
+}
+setInterval(pushLive, 2000);
+$('ntfyTopic').value = S.settings.ntfyTopic || '';
+$('ntfyTopic').onchange = e => { S.settings.ntfyTopic = e.target.value.trim(); saveSettings(); };
+$('ntfyRandom').onclick = () => { $('ntfyTopic').value = 'courtside-' + Math.random().toString(36).slice(2, 12); $('ntfyTopic').dispatchEvent(new Event('change')); };
+$('ntfyTest').onclick = () => { if ((S.settings.ntfyTopic || '').length < 6) { $('watchMsg').textContent = 'Set a topic first.'; return; } watchNotify('COURTSIDE test', 'Notifications reach your watch.', true); pushLive(); $('watchMsg').textContent = 'Test sent — check your iPhone/Watch.'; };
+
 function saveLog() { if (S.match) fetch(`/api/matches/${S.match.matchId}/log`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-host-token': S.match.hostToken }, body: JSON.stringify(logPayload()) }).catch(() => { }); }
 setInterval(saveLog, 15000);
 
@@ -283,6 +307,7 @@ $('rulesStatus').textContent = ruleset.name;
 const SIDE = ruleset.sideNames || { home: 'HOME', away: 'AWAY' }; // 1v1: PLAYER A / PLAYER B
 $('homeName').textContent = SIDE.home; $('awayName').textContent = SIDE.away;
 document.querySelectorAll('[data-team]').forEach(b => { if (+b.dataset.points > 0 && b.textContent.includes(b.dataset.team.toUpperCase())) b.textContent = `${SIDE[b.dataset.team].replace('PLAYER ', '')} +${b.dataset.points}`; });
+$('ballSel').value = S.settings.ballColour || 'both'; $('ballSel').onchange = e => { S.settings.ballColour = e.target.value; saveSettings(); timeline('Ball colour set to ' + e.target.value + '.'); };
 $('detSel').onchange = e => { S.settings.detector = e.target.value; saveSettings(); location.reload(); };
 
 // ---------- drawing ----------
@@ -340,8 +365,15 @@ setInterval(() => {
 }, 500);
 // the detector (≈20 MB of model weights) loads only when the first camera appears, not on page open
 function loadDetector() { if (S.detLoading) return; S.detLoading = true; $('detStatus').textContent = 'loading model…';
-  detector.load(S.settings.detector || 'auto').then(k => { if (k === 'COCO-SSD') analyzer.setTrackerOptions({ highThresh: 0.35, newTrackThresh: 0.4, lowThresh: 0.15 }); }).catch(() => { }); }
+  (detector instanceof WorkerVision ? detector.load('efficientdet_lite2') : detector.load(S.settings.detector || 'auto')).then(k => { if (k === 'COCO-SSD' || k === 'EfficientDet') analyzer.setTrackerOptions({ highThresh: 0.35, newTrackThresh: 0.4, lowThresh: 0.15 }); }).catch(() => { }); }
 if (detector.status === 'not loaded') detector.status = 'loads when a camera is added';
+// if EfficientDet-Lite2 is slow on this laptop (no usable GPU), switch the worker to the lighter Lite0 once
+setInterval(() => {
+  if (S.detSwitched || !(detector instanceof WorkerVision) || detector.model !== 'efficientdet_lite2') return;
+  const ms = [...S.pipelines.values()].map(p => p.timings.detect).filter(Boolean); if (ms.length < 1 || Math.min(...ms) < 700) return;
+  S.detSwitched = true; timeline(`EfficientDet-Lite2 takes ${Math.round(Math.min(...ms))} ms/frame here — switching to the faster EfficientDet-Lite0.`, 'warn');
+  detector.switchTo('efficientdet_lite0').catch(() => { });
+}, 8000);
 // periodic court-visibility check for calibrated cameras
 setInterval(() => { for (const [id, p] of S.pipelines) { const c = analyzer.camera(id).calib; if (!c || !p.last) continue; const img = p.grab(); if (img) workerCall('fit', { img, H: c.Hc2i }).then(r => p.health.noteCourtFit(r.fraction)).catch(() => { }); } }, 20000);
 
@@ -354,7 +386,7 @@ async function autoCalibrateTick() {
   for (const [id, p] of S.pipelines) {
     const c = analyzer.camera(id).calib, issues = p.healthReport?.issues || [];
     const needs = !c || (c.auto && issues.some(i => i.code === 'moved' || i.code === 'court_lost'));
-    if (!needs || !p.last || (p.autoTried && Date.now() - p.autoTried < 8000)) continue;
+    if (!needs || !p.size() || (p.autoTried && Date.now() - p.autoTried < 8000)) continue; // needs video, not detections
     const img = p.grab(); if (!img) continue;
     S.autoBusy = true; p.autoTried = Date.now(); p.courtState = 'searching for court lines…';
     try {
@@ -391,14 +423,21 @@ const worker = new Worker('/js/app/calib-worker.js', { type: 'module' }); let wi
 worker.onmessage = e => { const p = wp.get(e.data.id); wp.delete(e.data.id); e.data.ok ? p.res(e.data.result) : p.rej(new Error(e.data.error)); };
 function workerCall(cmd, data) { return new Promise((res, rej) => { const id = ++wid; wp.set(id, { res, rej }); worker.postMessage({ id, cmd, court: ruleset.court, ...data }); }); }
 const K = { cam: null, img: null, H: null, pts: {}, active: null, rimMode: null, rims: {}, support: null };
-const KP = model.keypoints();
+// Half court only. Names are as seen from the halfway line FACING the basket (left/right), matching the
+// automatic half-court frame (basket at +x, left = +y), so manual and automatic cameras share one frame.
+const KPALL = model.keypoints();
+const KPNAMES = { key_base_R_bottom: 'Key – baseline corner (left)', key_base_R_top: 'Key – baseline corner (right)', key_ft_R_bottom: 'Free-throw line – left end', key_ft_R_top: 'Free-throw line – right end',
+  corner_R_bottom: 'Baseline – left court corner', corner_R_top: 'Baseline – right court corner', tp_base_R_bottom: '3-pt line meets baseline (left)', tp_base_R_top: '3-pt line meets baseline (right)',
+  tp_arc_R_bottom: '3-pt straight line ends (left)', tp_arc_R_top: '3-pt straight line ends (right)', tp_top_R: 'Top of the 3-pt arc', ft_circle_R: 'Top of the free-throw circle',
+  centre_bottom: 'Halfway line – left sideline end', centre_top: 'Halfway line – right sideline end' };
+const KP = Object.fromEntries(Object.keys(KPNAMES).map(k => [k, KPALL[k]]));
 function openCalibration(camId) {
   const p = S.pipelines.get(camId), img = p?.grab(); if (!img) { alert('No video from this camera yet.'); return; }
   const prev = analyzer.camera(camId).calib;
   Object.assign(K, { cam: camId, img, H: prev?.Hc2i || null, pts: {}, active: Object.keys(KP)[0], rimMode: null, rims: Object.fromEntries((prev?.rims || []).filter(r => r.source === 'manual').map(r => [r.side, r])), support: null });
   $('calibTitle').textContent = 'Calibrate ' + (cm.cams.get(camId)?.label || camId); $('calibMsg').textContent = ''; $('calibModal').hidden = false; renderKp(); drawCalib();
 }
-function renderKp() { $('kpList').innerHTML = Object.keys(KP).map(k => `<div class="kp ${K.active === k ? 'active' : ''} ${K.pts[k] ? 'set' : ''}" data-k="${k}"><span>${k.replace(/_/g, ' ')}</span><b>${K.pts[k] ? '●' : '○'}</b></div>`).join(''); $('kpList').querySelectorAll('.kp').forEach(el => el.onclick = () => { K.active = el.dataset.k; K.rimMode = null; renderKp(); }); }
+function renderKp() { $('kpList').innerHTML = Object.keys(KP).map(k => `<div class="kp ${K.active === k ? 'active' : ''} ${K.pts[k] ? 'set' : ''}" data-k="${k}"><span>${KPNAMES[k] || k}</span><b>${K.pts[k] ? '●' : '○'}</b></div>`).join(''); $('kpList').querySelectorAll('.kp').forEach(el => el.onclick = () => { K.active = el.dataset.k; K.rimMode = null; renderKp(); }); }
 function drawCalib() {
   const cv = $('calibCanvas'), x = cv.getContext('2d'); cv.width = K.img.width; cv.height = K.img.height; x.putImageData(K.img, 0, 0);
   if (K.H) { x.save(); drawCourt(x, K.H, 1); x.restore(); x.strokeStyle = 'rgba(199,255,74,.9)'; }
@@ -416,7 +455,7 @@ $('calibCompute').onclick = async () => { const clicked = Object.entries(K.pts).
 $('flipX').onclick = () => { if (K.H) { K.H = K.H.map(r => [-r[0], r[1], r[2]]); drawCalib(); } }; $('flipY').onclick = () => { if (K.H) { K.H = K.H.map(r => [r[0], -r[1], r[2]]); drawCalib(); } };
 $('calibRefresh').onclick = () => { const img = S.pipelines.get(K.cam)?.grab(); if (img) { K.img = img; drawCalib(); } };
 $('clearPts').onclick = () => { K.pts = {}; renderKp(); drawCalib(); };
-$('rimL').onclick = () => { K.rimMode = { side: -1 }; $('calibMsg').textContent = 'Click the centre of the LEFT rim.'; }; $('rimR').onclick = () => { K.rimMode = { side: 1 }; $('calibMsg').textContent = 'Click the centre of the RIGHT rim.'; };
+$('rimR').onclick = () => { K.rimMode = { side: 1 }; $('calibMsg').textContent = 'Click the centre of the rim, then its left or right edge.'; }; // half court: the basket is always the +x one
 $('calibClose').onclick = () => $('calibModal').hidden = true;
 $('calibSave').onclick = async () => {
   if (!K.H) { $('calibMsg').textContent = 'Nothing to save yet.'; return; }

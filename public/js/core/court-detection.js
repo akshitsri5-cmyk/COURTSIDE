@@ -336,3 +336,28 @@ export function canonicalHalfCourt(H, width, height) {
   scored.sort((a, b) => b.score - a.score);
   return scored[0].V;
 }
+
+/**
+ * Reject false courts (bedrooms, walls, beds produce straight lines too). A real court view must match the
+ * model well, show at least two distinct marking groups including a key/free-throw/3-point marking, and give
+ * a physically plausible camera (focal length recoverable, 0.5–25 m above the floor, court in front of it).
+ */
+function invertH3(H) { const [[a, b, c], [d, e, f], [g, h, i]] = H, A = e * i - f * h, B = -(d * i - f * g), C = d * h - e * g, D = a * A + b * B + c * C; return [[A / D, -(b * i - c * h) / D, (b * f - c * e) / D], [B / D, (a * i - c * g) / D, -(a * f - c * d) / D], [C / D, -(a * h - b * g) / D, (a * e - b * d) / D]]; }
+export function plausibleCourt(r, width, height) {
+  if (!r?.H) return { ok: false, reason: r?.reason || 'no court model fit' };
+  if ((r.fraction ?? 0) < 0.6) return { ok: false, reason: `only ${Math.round((r.fraction ?? 0) * 100)}% of the predicted court lines are visible` };
+  if (r.prep?.dt) { // significance: busy scenes match random lines by chance
+    let near = 0; for (let i = 0; i < r.prep.dt.length; i++) if (r.prep.dt[i] < 2.5) near++;
+    const chance = near / r.prep.dt.length;
+    if (r.fraction < Math.min(0.95, chance * 2.5 + 0.3)) return { ok: false, reason: `line match ${Math.round(r.fraction * 100)}% is not far above chance (${Math.round(chance * 100)}% of the image looks like lines)` };
+  }
+  { // the court must occupy a meaningful part of the picture
+    let vis = 0, tot = 0; for (let v = 0.5; v < height; v += height / 36) for (let u = 0.5; u < width; u += width / 64) { tot++; const q = applyH(invertH3(r.H), [u, v]); if (q && Math.abs(q[0]) <= 14 && Math.abs(q[1]) <= 7.5) vis++; }
+    if (vis / tot < 0.15) return { ok: false, reason: 'detected court covers too little of the picture' };
+  }
+  const det = Object.entries(r.support || {}).filter(([, g]) => g.detected).map(([k]) => k);
+  if (det.length < 2 || !det.some(k => ['key', 'free_throw', 'three_point'].includes(k))) return { ok: false, reason: 'no key / free-throw / 3-point markings found' };
+  let cam; try { cam = cameraFromHomography(r.H, width, height); } catch { return { ok: false, reason: 'camera geometry impossible' }; }
+  if (!cam.reliable || !(cam.centre[2] > 0.5 && cam.centre[2] < 25)) return { ok: false, reason: 'implausible camera position for a court' };
+  return { ok: true, groups: det };
+}

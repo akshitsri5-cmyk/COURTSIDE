@@ -17,7 +17,7 @@ export class CameraPipeline {
     this.clipCanvas = document.createElement('canvas');
     this.pose = new PoseEstimator(); this.health = new CameraHealthMonitor(); this.last = null; this.busy = false; this.lastRun = 0; this.frameN = 0;
     this.timings = {}; this.lumSeries = null; this.enabled = true;
-    this.pose.load(opts.poseModel).catch(() => { });
+    if (!detector.withPose) this.pose.load(opts.poseModel).catch(() => { }); // worker detectors bring their own pose
     this.loop();
   }
   loop() {
@@ -35,24 +35,31 @@ export class CameraPipeline {
     if (this.lumSeries) { this.tctx.drawImage(this.cam.video, 0, 0, 96, 54); const d = this.tctx.getImageData(0, 0, 96, 54).data; let s = 0; for (let i = 0; i < d.length; i += 4) s += d[i] * 0.3 + d[i + 1] * 0.59 + d[i + 2] * 0.11; this.lumSeries.push({ t: stamp.serverMs, y: s / (96 * 54) }); }
     if (!this.enabled || this.busy || !this.detector.kind || this.cam.paused) return;
     // adaptive pacing: analysis may use at most ~half of the main thread, whatever FPS was requested
-    const minGap = Math.max(1000 / this.opts.fps, 2 * (this.timings.total || 0));
+    // budget shared by ALL cameras on this page: together they may use at most ~half of the main thread
+    const minGap = Math.max(1000 / this.opts.fps, 2 * (this.timings.mainThread ?? this.timings.total ?? 0) * Math.max(1, this.opts.cameraCount || 1));
     if (now - this.lastRun < minGap) return;
     this.busy = true; this.lastRun = now;
     try {
       const T0 = performance.now(), img = this.grab(); if (!img) return;
-      const det = await this.detector.detect(this.canvas); const T1 = performance.now();
+      const T0g = performance.now(); const det = await this.detector.detect(this.canvas, { pose: this.opts.pose }); const T1 = performance.now();
+      let persons, T2 = T1, poses = [];
+      if (this.detector.withPose) persons = det.persons; // detection + pose already done in the background worker
+      else {
       // whole-frame multi-person pose on alternate frames; per-player crops fill in (max 3 per frame)
-      const poses = this.opts.pose && this.frameN % 2 === 0 ? this.pose.detect(this.canvas, now) : []; const T2 = performance.now();
-      let persons = attachPoses(det.persons.filter(p => p.bbox[3] > 20), poses);
+      poses = this.opts.pose && this.frameN % 2 === 0 ? this.pose.detect(this.canvas, now) : []; T2 = performance.now();
+      persons = attachPoses(det.persons.filter(p => p.bbox[3] > 20), poses);
       if (this.opts.pose) { let n = 0; for (const p of persons) if (!p.pose && p.score > 0.4 && n++ < 3) p.pose = this.pose.detectCrop(this.canvas, p.bbox); }
+      }
       persons = persons.map(p => ({ ...p, emb: embed(img, p.bbox) }));
       // colour candidates around the predicted ball (fast motion blur) or a coarse full-frame scan
       const est = this.analyzer.camera(this.cam.id).ball.estimate();
       const win = est ? [est.u - 80 - est.r * 4, est.v - 80 - est.r * 4, est.u + 80 + est.r * 4, est.v + 80 + est.r * 4] : null;
-      const balls = [...det.balls, ...findBallCandidates(img, { window: win, step: win ? 2 : 4, minR: 3, maxR: 40 })];
+      // ball candidates must be ball-sized relative to the players in view (ball ≈ 0.24 m, player ≈ 1.9 m)
+      const hs = persons.map(p => p.bbox[3]).sort((a, b) => a - b), ph = hs.length ? hs[hs.length >> 1] : 0;
+      const balls = [...det.balls, ...findBallCandidates(img, { window: win, step: win ? 2 : 4, minR: ph ? Math.max(2, 0.03 * ph) : 3, maxR: ph ? Math.max(6, 0.11 * ph) : 40, colour: this.opts.ballColour || 'both' })];
       const out = this.analyzer.processCameraFrame(this.cam.id, t, { persons, balls });
-      this.last = { t, persons, balls, out, w: img.width, h: img.height, poses: poses.length };
-      this.timings = { detect: T1 - T0, pose: T2 - T1, total: performance.now() - T0, detector: this.detector.kind };
+      this.last = { t, persons, balls, out, w: img.width, h: img.height, poses: this.detector.withPose ? persons.filter(p => p.pose).length : poses.length };
+      this.timings = { detect: det.detectMs ?? (T1 - T0), pose: det.poseMs ?? (T2 - T1), total: performance.now() - T0, mainThread: this.detector.withPose ? (T0g - T0) + (performance.now() - T1) : performance.now() - T0, /* waiting for the worker is not main-thread work */ detector: this.detector.kind };
       this.frameN++;
       if (this.frameN % 2 === 0) this.recordFrame(t);
       if (this.frameN % 10 === 0) { this.tctx.drawImage(this.canvas, 0, 0, 96, 54); const d = this.tctx.getImageData(0, 0, 96, 54).data, g = new Float32Array(96 * 54); for (let i = 0; i < g.length; i++) g[i] = d[4 * i] * 0.3 + d[4 * i + 1] * 0.59 + d[4 * i + 2] * 0.11; this.healthReport = this.health.check(now / 1000, g, 96, 54); this.lastThumb = g; }
@@ -78,7 +85,9 @@ export class CameraPipeline {
     for (const tr of L.out.tracks) {
       const g = fusion.byCameraTrack(this.cam.id, tr.id), b = tr.bbox, col = g?.team === 0 ? '#c7ff4a' : g?.team === 1 ? '#ff914d' : '#9fb3ab';
       x.strokeStyle = col; x.strokeRect(b[0] * s, b[1] * s, b[2] * s, b[3] * s);
-      const label = (g ? g.label || g.id : tr.id) + (tr.pose ? '' : ' ·');
+      // court-fused ID when every live camera is calibrated, otherwise the clothing-based cross-camera identity (A/B)
+      const allCal = [...this.analyzer.cams.values()].every(c => c.calib), lk = this.analyzer.linker.label(this.cam.id, tr.id);
+      const label = (allCal && g ? g.label || g.id : lk ? 'Player ' + lk : '…') + (tr.pose ? '' : ' ·');
       x.fillStyle = col; x.fillRect(b[0] * s, b[1] * s - 15, x.measureText(label).width + 8, 15); x.fillStyle = '#0b1010'; x.fillText(label, b[0] * s + 4, b[1] * s - 4);
       if (showPose && tr.pose && tr.poseT === tr.lastSeen) { x.strokeStyle = 'rgba(140,200,255,.85)'; x.lineWidth = 1.5; for (const [a, c] of [[11, 12], [11, 13], [13, 15], [12, 14], [14, 16], [11, 23], [12, 24], [23, 24], [23, 25], [25, 27], [24, 26], [26, 28], [27, 31], [28, 32]]) { const p = tr.pose[a], q = tr.pose[c]; if (p.v > 0.5 && q.v > 0.5) { x.beginPath(); x.moveTo(p.x * s, p.y * s); x.lineTo(q.x * s, q.y * s); x.stroke(); } } x.lineWidth = 2; }
     }

@@ -8,7 +8,7 @@ import { GameAnalyzer, attachPoses } from '../../public/js/core/game-analyzer.js
 import { getRuleset } from '../../public/js/core/rules/rulesets.js';
 import { run, Scenario, STANDARD_CAMS } from '../helpers/scenario.js';
 import { walker } from '../helpers/plays.js';
-import { TEAM_EMB } from '../helpers/scenario.js';
+import { TEAM_EMB, jersey } from '../helpers/scenario.js';
 
 test('tracker keeps IDs when two players cross and one is fully occluded', () => {
   const tr = new PlayerTracker(), seen = { A: new Set(), B: new Set() };
@@ -117,4 +117,40 @@ test('tracker thresholds can be lowered for COCO-SSD (person with score 0.45 bec
   const an = new GameAnalyzer({ ruleset: getRuleset('FIBA') }); an.setTrackerOptions({ highThresh: 0.35, newTrackThresh: 0.4 });
   let out; for (let k = 0; k < 3; k++) out = an.processCameraFrame('c', k / 10, { persons: [{ bbox: [100, 50, 300, 400], score: 0.45 }], balls: [] });
   assert.equal(out.tracks.length, 1);
+});
+
+test('uncalibrated cameras: the same two people get the same A/B label in both cameras by clothing', async () => {
+  const { AppearanceLinker } = await import('../../public/js/core/appearance-linker.js');
+  const L = new AppearanceLinker({ maxIds: 2 }); const third = jersey(16);
+  for (let k = 0; k < 5; k++) {
+    L.update('cam1', [{ id: 'cam1-7', emb: TEAM_EMB[0], hits: 5 }, { id: 'cam1-9', emb: TEAM_EMB[1], hits: 5 }]);
+    L.update('cam2', [{ id: 'cam2-3', emb: TEAM_EMB[1], hits: 5 }, { id: 'cam2-4', emb: TEAM_EMB[0], hits: 5 }, { id: 'cam2-8', emb: third, hits: 5 }]);
+  }
+  assert.equal(L.label('cam1', 'cam1-7'), L.label('cam2', 'cam2-4')); assert.equal(L.label('cam1', 'cam1-9'), L.label('cam2', 'cam2-3'));
+  assert.notEqual(L.label('cam1', 'cam1-7'), L.label('cam1', 'cam1-9')); assert.equal(L.label('cam2', 'cam2-8'), null, '1v1: a third (different) person gets no player label');
+});
+
+test('court detection rejects a busy non-court scene (lines by chance) but accepts a court', async () => {
+  const { plausibleCourt } = await import('../../public/js/core/court-detection.js');
+  const ok = plausibleCourt({ H: [[1000, 572, 11448], [0, -125, 6440], [0, 0.894, 17.9]], fraction: 0.4, support: {} }, 1280, 720); assert.equal(ok.ok, false);
+});
+
+test('a real basketball the detector never sees is tracked from a MOVING orange blob; a static one is not', () => {
+  const mv = new BallTracker(); let e;
+  for (let k = 0; k < 30; k++) e = mv.update([{ x: 200 + 15 * k, y: 300 - 8 * k + 0.4 * k * k, r: 10, score: 0.8, source: 'colour' }], k / 15);
+  assert.ok(e && e.state === 'tracking', 'moving ball tracked from colour only');
+  const st = new BallTracker(); for (let k = 0; k < 30; k++) e = st.update([{ x: 500, y: 400, r: 12, score: 0.9, source: 'colour' }], k / 15);
+  assert.equal(e, null, 'static orange object never becomes the ball');
+});
+
+test('white/grey ball (e.g. Jordan) found on a wooden floor; white court line and big white shirt rejected', () => {
+  const W = 320, H = 180, data = new Uint8ClampedArray(W * H * 4);
+  for (let i = 0; i < W * H; i++) { data[4 * i] = 190; data[4 * i + 1] = 140; data[4 * i + 2] = 90; data[4 * i + 3] = 255; }
+  const paint = (f, rgb) => { for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (f(x, y)) { const i = 4 * (y * W + x); data[i] = rgb[0]; data[i + 1] = rgb[1]; data[i + 2] = rgb[2]; } };
+  paint((x, y) => (x - 100) ** 2 + (y - 90) ** 2 < 81, [200, 200, 195]);          // grey-white ball r=9
+  paint((x, y) => y >= 150 && y < 153, [235, 235, 230]);                            // court line
+  paint((x, y) => x > 220 && x < 290 && y > 30 && y < 120, [215, 215, 210]);       // white shirt (much bigger than a ball)
+  const c = findBallCandidates({ width: W, height: H, data }, { step: 1, colour: 'white', minR: 3, maxR: 15 });
+  assert.equal(c.length, 1, JSON.stringify(c)); assert.ok(Math.hypot(c[0].x - 100, c[0].y - 90) < 3);
+  assert.equal(findBallCandidates({ width: W, height: H, data }, { step: 1, colour: 'orange' }).length, 0, 'orange mode ignores the white ball');
 });

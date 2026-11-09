@@ -31,7 +31,8 @@ export class FoulDetector {
    * players: [{id, team, pos, vel, isReferee, airborne, groundedFeet, views:{cam:{bbox,pose}}, history: (t)=>{p,v}}]
    * poss: possession output. Returns new alerts.
    */
-  update(t, players, poss) {
+  update(t, players, poss, { fps = 10 } = {}) {
+    const minFrames = fps < 4 ? 1 : 2; // at ~1 fps a real contact may only be visible in one analysed frame
     const A = this.cfg.analysis, out = [];
     const ps = players.filter(p => !p.isReferee && p.pos);
     for (let i = 0; i < ps.length; i++) for (let j = i + 1; j < ps.length; j++) {
@@ -54,8 +55,8 @@ export class FoulDetector {
         ep.last = t; ep.frames++; contactViews.forEach(c => ep.cams.add(c)); if (parts) ep.parts.push(parts);
       } else if (contactViews.length && sepViews.length && ep) { ep.contradicted = (ep.contradicted || 0) + 1; }
       // Fouls happen at contact ONSET: evaluate ~0.65 s after onset (impact window), keep the episode open to avoid duplicates.
-      if (ep && !ep.queued && ep.frames >= 2 && t - ep.start >= 0.65) { ep.queued = true; this.closing.push({ ep, evalAt: t }); }
-      if (ep && t - ep.last > 0.25) { this.episodes.delete(key); if (!ep.queued && ep.frames >= 2) { ep.queued = true; this.closing.push({ ep, evalAt: Math.max(t, ep.start + 0.65) }); } }
+      if (ep && !ep.queued && ep.frames >= minFrames && t - ep.start >= 0.65) { ep.queued = true; this.closing.push({ ep, evalAt: t }); }
+      if (ep && t - ep.last > Math.max(0.25, 1.5 / Math.max(fps, 0.5))) { this.episodes.delete(key); if (!ep.queued && ep.frames >= minFrames) { ep.queued = true; this.closing.push({ ep, evalAt: Math.max(t, ep.start + 0.65) }); } }
     }
     // evaluate closed episodes once post-contact velocities are available
     for (const c of [...this.closing]) {

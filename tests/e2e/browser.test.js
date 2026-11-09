@@ -5,21 +5,23 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
+import http from 'node:http';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { lookAtCamera, renderCourt } from '../helpers/synth.js';
 import { writeY4M } from '../helpers/y4m.js';
 const { chromium } = createRequire(import.meta.url)('playwright');
 const ROOT = path.resolve(import.meta.dirname, '../..'), PORT = 8700 + Math.floor(Math.random() * 200), BASE = `http://localhost:${PORT}`;
-let server;
+let server, ntfy; const pushes = [], NTFY_PORT = PORT + 1000;
 const FAKE = ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'];
 
 test.before(async () => {
-  server = spawn(process.execPath, ['server/server.js'], { cwd: ROOT, env: { ...process.env, HTTP_PORT: PORT, DISABLE_HTTPS: '1', DATA_DIR: fs.mkdtempSync(path.join(os.tmpdir(), 'cs-')) }, stdio: 'pipe' });
+  ntfy = http.createServer((q, r) => { let b = ''; q.on('data', d => b += d); q.on('end', () => { pushes.push({ path: q.url, title: q.headers.title, body: b }); r.end('ok'); }); }); await new Promise(r => ntfy.listen(NTFY_PORT, r));
+  server = spawn(process.execPath, ['server/server.js'], { cwd: ROOT, env: { ...process.env, NTFY_URL: `http://127.0.0.1:${NTFY_PORT}`, HTTP_PORT: PORT, DISABLE_HTTPS: '1', DATA_DIR: fs.mkdtempSync(path.join(os.tmpdir(), 'cs-')) }, stdio: 'pipe' });
   for (let i = 0; i < 50; i++) { try { if ((await fetch(BASE + '/api/info')).ok) return; } catch { } await new Promise(r => setTimeout(r, 100)); }
   throw new Error('server did not start');
 });
-test.after(() => server?.kill());
+test.after(() => { server?.kill(); ntfy?.close(); });
 
 const waitCode = async p => { await p.waitForFunction(() => /^\d{6}$/.test(document.getElementById('pairCode').textContent), null, { timeout: 15000 }); return p.textContent('#pairCode'); };
 const liveCams = p => p.evaluate(() => [...courtside.cm.cams.values()].filter(c => c.state === 'live' && c.video.videoWidth > 0).map(c => c.id));
@@ -97,6 +99,9 @@ test('automatic half-court calibration (no clicks) on a (synthetic) court video 
     const err = Math.min(...[[1, 1]].map(([a, bb]) => /* half-court canonical frame: NO symmetry tolerance */ { let e = 0, n = 0; for (const p of [[8.2, 2.45], [14, -7.5], [5.675, 0], [10, -4]]) { const q = apply(res.H, [a * p[0], bb * p[1]]), g = apply(cam.H, p); e += Math.hypot(q[0] - g[0] * s, q[1] - g[1] * s); n++; } return e / n; }));
     assert.ok(err < 4, 'calibration error ' + err.toFixed(2) + ' px'); assert.ok(res.rel && Math.abs(res.h - 7) < 0.8, 'camera height ' + res.h);
     await dash.waitForFunction(() => document.getElementById('calCount').textContent === '1 / 1', null, { timeout: 5000 });
+    // the analysis pipeline (default worker detector) must actually process frames without errors
+    await dash.waitForFunction(() => [...courtside.S.pipelines.values()].every(p => p.frameN > 0), null, { timeout: 90000 });
+    assert.deepEqual(await dash.evaluate(() => [...courtside.S.pipelines.values()].map(p => p.error || null)), [null]);
   } finally { await b.close(); }
 });
 
@@ -120,5 +125,54 @@ test('game recording: every camera angle + match info (date, times, location, sc
     const meta = JSON.parse(fs.readFileSync(await info.path(), 'utf8'));
     assert.equal(meta.location.text, 'Test court, Noida'); assert.ok(meta.startedAt && meta.endedAt && meta.durationSec >= 3);
     assert.equal(meta.finalScore.home, 2); assert.equal(meta.cameras.length, 1); assert.ok(meta.timezone);
+  } finally { await b.close(); }
+});
+
+test('Apple Watch: watch page shows live score/clock/calls (secret link) and calls are pushed to ntfy', async () => {
+  const b = await chromium.launch();
+  try {
+    const dash = await (await b.newContext()).newPage(); await dash.goto(BASE); await waitCode(dash);
+    await dash.fill('#ntfyTopic', 'courtside-testtopic'); await dash.dispatchEvent('#ntfyTopic', 'change');
+    await dash.locator('[data-team="home"][data-points="2"]').click();
+    await dash.evaluate(() => { const t = courtside.sig.serverTime() / 1000; courtside.addAlert({ id: 'W1', type: 'charging_foul', label: 'Charging foul', t, tStart: t - 2, tEnd: t, players: ['P1'], team: 0, confidence: 0.8, status: 'flagged', decision: 'pending', cams: ['cam1', 'cam2'], reasons: ['test'] }); });
+    const url = await dash.textContent('#watchUrl'); assert.match(url, /\/watch\/.+\?k=.+/);
+    await dash.waitForTimeout(2600);
+    const w = await (await b.newContext({ viewport: { width: 198, height: 242 } })).newPage(); // Apple Watch-sized screen
+    await w.goto(url.replace(/^https?:\/\/[^/]+/, BASE)); const html = await w.content();
+    assert.match(html, /PLAYER A/); assert.match(html, />2</); assert.match(html, /Charging foul/); assert.match(html, /http-equiv="refresh"/);
+    assert.equal(await w.evaluate(() => document.scripts.length), 0, 'no JavaScript needed on the watch');
+    assert.equal((await fetch(url.replace(/^https?:\/\/[^/]+/, BASE).replace(/k=[^&]+/, 'k=wrong'))).status, 403, 'secret link required');
+    await dash.waitForTimeout(500);
+    assert.ok(pushes.some(p => p.path === '/courtside-testtopic' && /Charging foul/.test(p.title)), JSON.stringify(pushes));
+  } finally { await b.close(); }
+});
+
+test('default detector: EfficientDet + pose in a background worker (real photo, page stays responsive)', async () => {
+  const b = await chromium.launch();
+  try {
+    const p = await b.newPage(); await p.route('**/fixture.jpg', r => r.fulfill({ body: fs.readFileSync(path.join(ROOT, 'tests/fixtures/bus.jpg')), contentType: 'image/jpeg' }));
+    await p.goto(BASE + '/camera.html');
+    const r = await p.evaluate(async () => {
+      const { WorkerVision } = await import('/js/app/detectors.js'); const im = new Image(); im.src = '/fixture.jpg'; await im.decode();
+      const c = document.createElement('canvas'); c.width = im.width; c.height = im.height; c.getContext('2d').drawImage(im, 0, 0);
+      const d = new WorkerVision(); await d.load(); let ticks = 0, maxGap = 0, last = performance.now(); const iv = setInterval(() => { const n = performance.now(); maxGap = Math.max(maxGap, n - last); last = n; ticks++; }, 20);
+      const o = await d.detect(c, { pose: true }); clearInterval(iv);
+      const ps = o.persons.filter(x => x.score > 0.5); return { status: d.status, persons: ps.length, withPose: ps.filter(x => x.pose).length, maxMainThreadGapMs: Math.round(maxGap) };
+    });
+    assert.ok(r.persons >= 3, JSON.stringify(r)); assert.ok(r.withPose >= r.persons - 1, 'pose for all fully visible people (one is cut off at the photo edge): ' + JSON.stringify(r));
+    assert.ok(r.maxMainThreadGapMs < 500, 'main thread stayed responsive during detection: ' + JSON.stringify(r));
+  } finally { await b.close(); }
+});
+
+test('phone dashcam: "Record on this phone" saves a full-quality file on the phone', async () => {
+  const b = await chromium.launch({ args: FAKE });
+  try {
+    const ctx = await b.newContext({ permissions: ['camera'], acceptDownloads: true });
+    const dash = await ctx.newPage(); await dash.goto(BASE); const code = await waitCode(dash);
+    const ph = await (await b.newContext({ permissions: ['camera'], acceptDownloads: true })).newPage(); await ph.goto(BASE + '/camera.html?code=' + code); await ph.click('#join');
+    await ph.waitForFunction(() => document.getElementById('state').textContent === 'LIVE', null, { timeout: 30000 });
+    await ph.click('#dashcam'); await ph.waitForTimeout(3000);
+    const [dl] = await Promise.all([ph.waitForEvent('download'), ph.click('#dashcam')]);
+    assert.match(dl.suggestedFilename(), /^COURTSIDE_.+_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}\.(webm|mp4)$/); assert.ok(fs.statSync(await dl.path()).size > 10000);
   } finally { await b.close(); }
 });

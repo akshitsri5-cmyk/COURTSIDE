@@ -1,12 +1,13 @@
 // Court calibration worker (keeps the UI responsive during line detection, ~1–4 s).
-import { autoDetectCourt, calibrate, prepare, markingSupport, scoreHomography, canonicalHalfCourt } from '../core/court-detection.js';
+import { autoDetectCourt, calibrate, prepare, markingSupport, scoreHomography, canonicalHalfCourt, plausibleCourt } from '../core/court-detection.js';
 import { CourtModel } from '../core/court-model.js';
 import { estimateHomography } from '../core/homography.js';
 self.onmessage = e => {
   const { id, cmd, img, H, clicked, court } = e.data, model = new CourtModel(court);
   try {
     let r;
-    if (cmd === 'auto') { r = autoDetectCourt(img, { model }); if (r.H && e.data.halfCourt) { r.H = canonicalHalfCourt(r.H, img.width, img.height); r.support = markingSupport(r.H, r.prep, model); } }
+    if (cmd === 'auto') { r = autoDetectCourt(img, { model }); if (r.H && e.data.halfCourt) { r.H = canonicalHalfCourt(r.H, img.width, img.height); r.support = markingSupport(r.H, r.prep, model); }
+      const pc = plausibleCourt(r, img.width, img.height); if (!pc.ok) r = { H: null, reason: pc.reason }; }
     else if (cmd === 'calibrate') { const Hm = estimateHomography(clicked.map(c => c.court), clicked.map(c => c.img)); r = calibrate(img, Hm, { model, clicked }); }
     else if (cmd === 'fit') { const P = prepare(img); r = { H, support: markingSupport(H, P, model) }; const tot = Object.values(r.support).reduce((a, g) => [a[0] + g.matched, a[1] + g.visible], [0, 0]); r.fraction = tot[1] ? tot[0] / tot[1] : 0; }
     const { prep, lines, best, ...out } = r || {};

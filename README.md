@@ -48,13 +48,30 @@ Start the dashboard and either scan its QR link with each phone or open `/camera
 
 **Game recording**: enter a location (or 📍 GPS) and press **● Record game**. Every camera angle is saved as `COURTSIDE_<match>_<YYYY-MM-DD_HH-MM>_<camera>.webm` plus `…_match-info.json` (match, date, start/end time, time zone, location, cameras, final score, score history, calls, timeline). Chrome/Edge write straight to a folder you choose; other browsers download the files when you stop.
 
+## Phones as cameras (dashcam)
+
+* **Ball colour** (top bar): *any*, *white / grey* (e.g. Jordan outdoor balls) or *orange*. Colour candidates must be round, ball-sized relative to the players in view and moving; the detector's own ball detections work for any colour.
+* **● Record on this phone** (camera page): full-quality recording on the phone itself (6 Mbps), independent of the network; saved to the phone as `COURTSIDE_<camera>_<date>_<time>.mp4/webm` when stopped.
+* Connection watchdog: a phone only restarts its connection after a real failure or 25 s+ without progress (with back-off), and each phone streams at ≤1.8 Mbps so two phones fit on mobile uplinks / one relay.
+
+## Apple Watch
+
+* **Watch view**: the dashboard's ⌚ panel shows a private link (`/watch/<match>?k=<key>`). Send it to yourself in Messages and tap it on the watch: score, game clock, shot clock, possession, the last calls and camera status, refreshed every 3 s. Plain HTML, no JavaScript (watchOS's built-in web view), no Apple developer account. Rendered and tested at Apple Watch size in Chromium; not yet tried on a physical watch.
+* **Tap alerts**: install the free **ntfy** app on the iPhone, press *Random topic*, subscribe to it in ntfy. Calls, baskets, game over and dropped cameras arrive as iPhone notifications, which the Apple Watch mirrors with a haptic. Keep the link and topic private.
+
+## Player identity across cameras
+
+* **Court visible on every camera** → identities come from court positions (`P1`, `P2`…), robust even with similar clothes.
+* **No court / not all cameras calibrated** → identities come from **clothing colour**: in 1v1 each person is **Player A** or **Player B** on every camera. Works when the two players wear clearly different colours; identical outfits cannot be told apart this way.
+* Court detection now rejects non-court scenes (rooms, streets): a fit must be far above the chance level of the image's line density, show key/free-throw/3-point markings, cover ≥15 % of the picture and give a plausible camera height.
+
 ## Court calibration (automatic, half court)
 
 Nothing to click. Each camera searches for the court lines in the background (every few seconds until found, and again if the camera is bumped or the lines disappear). COURTSIDE assumes a **half-court game**: the filmed basket is always treated as the same basket, and the camera's physical position (above the floor) fixes the remaining mirror ambiguity, so **every camera gets the same court frame automatically**. That shared frame is what gives a player the same ID (P1, P2…) in every camera, and it locates the rim for scoring.
 
 Tips: mount phones high (≥2 m) at the side or corner, landscape, with as many court lines visible as possible (baseline, key, free-throw line, 3-point line). The camera card shows `Court: auto ✓ NN%` when found or `court not found — make the court lines visible`.
 
-**Manual court fix** (on each camera card) is only a fallback for courts whose lines can't be detected (faded paint, heavy occlusion): click ≥4 named points, or mark the rim if it wasn't located.
+**Manual court fix** (on each camera card) lists **half-court points only** (key corners, free-throw line ends, 3-point line ends, baseline corners, halfway line ends — left/right as seen from the halfway line facing the basket) plus **Mark the rim**. It is only a fallback for courts whose lines can't be detected (faded paint, heavy occlusion): click ≥4 named points, or mark the rim if it wasn't located.
 
 Automatic detection is validated on synthetic court renders from four camera angles (≤1.6 px error, correct shared orientation); it has **not yet been validated in real gyms**.
 
@@ -92,6 +109,8 @@ npm run test:e2e     # Playwright Chromium tests (install with: npm i -D playwri
 npm run test:all     # Both suites
 ```
 
-**Detector choice** (top bar): the default is **COCO-SSD** (TF.js, GPU-accelerated through WebGL, fast). **YOLO11n CPU** is more accurate (on the real test photo it finds 3 of the 3 clearly visible people at >0.5 confidence vs 2 for COCO-SSD) but takes ≈1 s per frame without a GPU. **YOLO11n WebGPU is experimental**: on one real Windows GPU it produced tiny, misplaced boxes, and it could not be tested in the development environment. COCO-SSD loads its weights from storage.googleapis.com and needs internet access; if that fails the dashboard falls back to YOLO11n CPU.
+**Detector choice** (top bar). Default: **EfficientDet-Lite2 + MediaPipe Pose in a background worker** (GPU when available). Detection and pose never run on the page's main thread, so the dashboard stays responsive (measured: ~7 ms of page time per analysed frame, no blocking). On the real test photo it finds 3 of 3 clearly visible people at >0.5 confidence (COCO-SSD: 2). If Lite2 is slower than 0.7 s/frame on the device, it switches itself to the faster EfficientDet-Lite0. Alternatives: COCO-SSD (main thread), YOLO11n CPU, YOLO11n WebGPU (experimental). Ball: model detections plus orange-blob tracking that follows a *moving* basketball the detector misses and ignores static orange objects.
+
+Temporal rules need frames: travelling/double dribble need roughly ≥8 analysed frames per second (a GPU laptop); fouls work down to ~1 fps (one contact frame is accepted at low rates).
 
 **Validation of this revision:** `npm test` **40/40 passing** with the real dependencies. `npm run test:e2e` ran **three consecutive times, 3/3 passing each run** in headless Chromium (real WebRTC pairing by QR link and code, phone reload, dashboard reload, phone close; YOLO11n + MediaPipe on a real photo; court auto-calibration through the UI on a synthetic court feed). A scripted dashboard sweep clicked every control (camera flip/pause/torch/quality/lines/analysis/remove, calibration auto/flip/rim/save, score, undo, team swap, clock, shot clock, next period, manual flags, new code, export, alert review with clip playback and confirm/review decisions, flash sync) with **zero console errors**; see `docs/dashboard.png`. CPU-only inference here is ~1.5 s/frame (WASM, no GPU), so real-time multi-camera analysis needs a WebGPU-capable laptop. The synthetic-scene logic tests do not validate real-game accuracy.

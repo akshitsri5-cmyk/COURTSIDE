@@ -13,13 +13,13 @@ export class MatchRegistry {
     for (const f of fs.readdirSync(dir)) if (f.endsWith('.meta.json')) { try { const m = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')); m.cameras = new Map(m.cameras); m.host = null; for (const c of m.cameras.values()) c.conn = null; this.matches.set(m.id, m); } catch { } }
   }
   save(m) {
-    if (!this.dataDir) return; const { host, ...rest } = m;
+    if (!this.dataDir) return; const { host, live, ...rest } = m;
     const data = { ...rest, cameras: [...m.cameras].map(([k, c]) => [k, { ...c, conn: null }]) };
     fs.writeFileSync(path.join(this.dataDir, 'matches', m.id + '.meta.json'), JSON.stringify(data, null, 1));
   }
   newCode() { let c; do { c = String(crypto.randomInt(100000, 1000000)); } while ([...this.matches.values()].some(m => m.code === c)); return c; }
   create(name = 'Match') {
-    const m = { id: rid(6), name, code: this.newCode(), joinKey: rid(12), hostToken: rid(18), created: Date.now(), cameras: new Map(), host: null, nextCam: 1 };
+    const m = { id: rid(6), name, code: this.newCode(), joinKey: rid(12), hostToken: rid(18), watchKey: rid(12), created: Date.now(), cameras: new Map(), host: null, nextCam: 1 };
     this.matches.set(m.id, m); this.save(m); return m;
   }
   byCode(code) { return [...this.matches.values()].find(m => m.code === String(code)); }
@@ -39,8 +39,9 @@ export function attachPeer(reg, send, log = () => { }) {
         if (m && m.hostToken !== msg.hostToken) return send({ type: 'error', code: 'bad-token', message: 'Not the host of this match' });
         if (!m) m = reg.create(String(msg.name || 'Match').slice(0, 60));
         if (m.host) m.host({ type: 'error', code: 'replaced', message: 'Dashboard opened elsewhere' });
+        if (!m.watchKey) { m.watchKey = rid(12); reg.save(m); }
         m.host = send; me = { match: m, role: 'host' };
-        send({ type: 'welcome', role: 'host', matchId: m.id, name: m.name, code: m.code, joinKey: m.joinKey, hostToken: m.hostToken, cameras: cameraList(m) });
+        send({ type: 'welcome', role: 'host', matchId: m.id, name: m.name, code: m.code, joinKey: m.joinKey, hostToken: m.hostToken, watchKey: m.watchKey, cameras: cameraList(m) });
         for (const c of m.cameras.values()) c.conn?.({ type: 'host-online' });
         log(`host connected to ${m.id}`); return;
       }
