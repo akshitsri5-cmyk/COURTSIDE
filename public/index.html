@@ -28,8 +28,9 @@
   <input id="locText" class="text-input" style="max-width:320px" placeholder="Location (e.g. DPS court, Noida)">
   <button class="sm" id="locGps">📍 Use GPS</button><span class="muted small" id="locInfo"></span>
   <button class="primary" id="recBtn">● Record game</button>
+  <button id="saveGame" title="Save the result now (stops the recording if one is running)">💾 Save game</button>
  </div>
- <p class="muted small" style="margin:8px 0 0">Saves one video per camera plus a match-info file (match, date, start/end time, location, score, calls). In Chrome/Edge you pick a folder once and video is written straight to disk.</p>
+ <p class="muted small" style="margin:8px 0 0">Every camera angle is saved inside the app with the match info (date, start/end time, location, names, score, calls). Find them under <b>Previous games</b> below — watch, download or delete.</p>
 </section>
 <div class="layout">
  <section class="panel">
@@ -104,6 +105,10 @@
    <p class="muted small">Phones must open the <b>https://</b> address (camera access requires HTTPS). With the built-in self-signed certificate each phone must accept the browser warning once. See README → HTTPS.</p></div>
  </div>
 </section>
+<section class="panel" id="history-panel" style="margin-top:17px">
+ <div class="panel-head"><strong>PREVIOUS GAMES</strong><span class="live" id="historyUsage">—</span></div>
+ <div class="alert-list" id="historyList"></div>
+</section>
 <section class="panel pad" id="watch-panel" style="margin-top:17px">
  <div class="row-between"><strong class="tag">⌚ APPLE WATCH</strong><span class="live">SCORE · CLOCK · CALLS ON YOUR WRIST</span></div>
  <div class="pair-grid" style="margin-top:10px">
@@ -133,6 +138,11 @@
   <div class="message" id="calibMsg"></div>
   <button class="primary" id="calibSave">Save calibration</button>
  </div>
+</div></div>
+<div class="modal" id="videoModal" hidden><div class="modal-box" style="grid-template-columns:1fr;max-width:1000px">
+ <div class="pad"><div class="row-between"><b id="histTitle">Game</b><button class="sm" id="histClose">✕</button></div>
+ <div class="controls" style="padding:8px 0"><select id="histCam" style="width:auto"></select></div>
+ <video id="histVideo" controls playsinline style="width:100%;background:#000;border-radius:10px"></video></div>
 </div></div>
 <script type="module" src="/js/app/dashboard.js"></script>
 </body></html>

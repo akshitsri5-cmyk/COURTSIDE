@@ -46,7 +46,7 @@ Start the dashboard and either scan its QR link with each phone or open `/camera
 
 **AUTO-CALL** (on by default): fouls/violations whose evidence meets the threshold are called immediately (clock stops, counted in FOULS); weaker evidence stays **NEEDS HUMAN REVIEW**. The referee can **Overturn** any auto-call. With one camera most fouls stay in review; auto-calls need two angles. Evidence thresholds are not yet validated on real games, so expect wrong calls.
 
-**Game recording**: enter a location (or 📍 GPS) and press **● Record game**. Every camera angle is saved as `COURTSIDE_<match>_<YYYY-MM-DD_HH-MM>_<camera>.webm` plus `…_match-info.json` (match, date, start/end time, time zone, location, cameras, final score, score history, calls, timeline). Chrome/Edge write straight to a folder you choose; other browsers download the files when you stop.
+**Game recording & Previous games**: enter a location (or 📍 GPS) and press **● Record game**. Every camera angle is written chunk by chunk into the app's own storage (browser IndexedDB on the referee laptop — persistent storage is requested), so long games don't fill RAM and survive a reload. **Previous games** lists every game (date/time, duration, location, player names, final score, number of calls, videos) with **▶ Watch** (in-app player, per camera angle), **⬇ Download** (`.webm` per angle + `_match-info.json`) and **🗑 Delete**. Games are saved automatically when a player wins, when a recording stops, or with **💾 Save game**. Recordings are not stored on the Render server (its free disk is wiped on restart). Clearing the browser's site data deletes the history — download important games.
 
 ## Agents added for 1v1 (no court calibration required)
 

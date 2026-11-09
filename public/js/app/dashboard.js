@@ -13,7 +13,8 @@ import { MatchRecorder } from '../core/match-recorder.js';
 import { FrameTimestamper, detectFlash, flashOffsets } from '../core/camera-sync.js';
 import { makeAlert } from '../core/rule-engine.js';
 import { applyH, hDepth } from '../core/homography.js';
-import { GameRecorder } from './game-recorder.js';
+import { GameRecorder, download } from './game-recorder.js';
+import { GameStore } from './game-store.js';
 import { fuseBaskets } from '../core/rim-watcher.js';
 import { RimFinder } from '../core/rim-finder.js';
 
@@ -277,6 +278,7 @@ function renderFouls() {
 function checkWin() {
   const w = ruleset.winScore; if (!w || S.gameOver) return;
   const side = score.score.home >= w ? 'home' : score.score.away >= w ? 'away' : null; if (!side) return;
+  setTimeout(() => endAndSaveGame('game over'), 1500); // keep the result (and stop the recording) automatically
   S.gameOver = true; S.gameOverText = `GAME OVER · ${ruleset.sideNames?.[side] || side.toUpperCase()} wins ${score.score.home}–${score.score.away}`; watchNotify('GAME OVER', `${(ruleset.sideNames?.[side] || side.toUpperCase())} wins ${score.score.home}–${score.score.away}`, true); clock.pause(`${side.toUpperCase()} reached ${w}`); timeline(`GAME OVER — ${side.toUpperCase()} wins ${score.score[side]}–${score.score[side === 'home' ? 'away' : 'home']} (first to ${w}).`, 'score');
 }
 function renderScore() {
@@ -337,14 +339,59 @@ $('recBtn').onclick = async () => {
     const cams = [...cm.cams.values()].filter(c => c.state === 'live'); if (!cams.length) { $('recStatus').textContent = 'no live camera to record'; return; }
     try { await gameRec.start(cams, { matchId: S.match?.matchId, matchName: S.match?.name || $('matchName').value || 'Match', location: { text: $('locText').value || null, ...(S.gps || {}) }, ruleset: ruleset.name }); }
     catch (e) { $('recStatus').textContent = 'could not start: ' + e.message; return; }
-    $('recBtn').textContent = '■ Stop recording'; timeline(`Recording started (${gameRec.mode === 'disk' ? 'saving to the chosen folder' : 'in memory, downloads when stopped'}) — ${cams.length} camera(s).`);
+    $('recBtn').textContent = '■ Stop recording'; if (!S.gameStartedAt) S.gameStartedAt = new Date().toISOString(); timeline(`Recording started — saved in the app (Previous games) — ${cams.length} camera(s).`);
   } else {
     $('recBtn').disabled = true; $('recStatus').textContent = 'saving…';
-    const files = await gameRec.stop({ finalScore: { ...score.score }, scoreHistory: score.history, clock: clock.snapshot(), alerts: alerts.alerts.map(({ clip, ...a }) => a), events: recorder.events.filter(e => e.wall >= gameRec.info.startedAt) });
-    $('recBtn').disabled = false; $('recBtn').textContent = '● Record game'; $('recStatus').textContent = 'saved ' + files.length + ' file(s)'; timeline('Recording saved: ' + files.join(', '));
+    const res = await gameRec.stop(gameSummary()); await saveGameRecord(res);
+    $('recBtn').disabled = false; $('recBtn').textContent = '● Record game'; $('recStatus').textContent = `saved in Previous games (${res.segments.length} camera angle(s))`; timeline('Recording saved in Previous games.');
   }
 };
 setInterval(() => { if (gameRec.active) { const s = gameRec.elapsedSec(); $('recStatus').textContent = `● REC ${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')} · ${gameRec.segments.filter(x => !x.endedAt).length} camera(s) · ${(gameRec.segments.reduce((a, x) => a + x.bytes, 0) / 1e6).toFixed(1)} MB`; } }, 1000);
+
+// ---------- previous games (stored in the app) ----------
+function gameSummary() {
+  return { finalScore: { ...score.score }, names: { home: SIDE.home, away: SIDE.away }, scoreHistory: score.history, clock: clock.snapshot(), winner: S.gameOverText || null,
+    calls: alerts.alerts.map(({ clip, ...a }) => ({ type: a.type, label: a.label, players: a.players, decision: a.decision, auto: !!a.autoCalled, gameClock: a.gameClock, period: a.period, confidence: a.confidence, reasons: a.reasons })),
+    events: recorder.events.filter(e => !S.gameStartedAt || e.wall >= S.gameStartedAt) };
+}
+async function saveGameRecord(res) {
+  const now = new Date(), info = res?.info || { ...gameSummary(), startedAt: S.gameStartedAt || now.toISOString(), endedAt: now.toISOString(), location: { text: $('locText').value || null, ...(S.gps || {}) }, matchName: S.match?.name || 'Match' };
+  const g = { id: res?.base || 'G' + now.getTime(), matchName: info.matchName || S.match?.name || 'Match', names: info.names || { home: SIDE.home, away: SIDE.away }, location: info.location, startedAt: info.startedAt, endedAt: info.endedAt || now.toISOString(),
+    durationSec: info.durationSec ?? Math.round((now - new Date(info.startedAt)) / 1000), finalScore: info.finalScore, winner: info.winner, ruleset: ruleset.name, calls: info.calls, scoreHistory: info.scoreHistory, info, segments: res?.segments || [] };
+  try { await GameStore.saveGame(g); S.savedGameId = g.id; } catch (e) { timeline('Could not save the game: ' + e.message, 'warn'); }
+  renderHistory(); return g;
+}
+async function endAndSaveGame(why) {
+  if (S.saving) return; S.saving = true;
+  try { if (gameRec.active) { $('recBtn').click(); await new Promise(r => setTimeout(r, 200)); while ($('recBtn').disabled) await new Promise(r => setTimeout(r, 200)); } else await saveGameRecord(null); timeline(`Game saved in Previous games (${why}).`); }
+  finally { S.saving = false; }
+}
+$('saveGame').onclick = () => endAndSaveGame('saved by referee');
+const fmtDur = s => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+async function renderHistory() {
+  let games = []; try { games = await GameStore.listGames(); } catch (e) { $('historyList').innerHTML = `<div class="pad muted small">Game history unavailable in this browser (${esc(e.message)}).</div>`; return; }
+  const u = await GameStore.usage(); $('historyUsage').textContent = `${games.length} game(s)${u ? ` · ${u.usedMB} MB used of ${Math.round(u.quotaMB / 1000)} GB` : ''}`;
+  $('historyList').innerHTML = games.length ? games.map(g => { const d = new Date(g.startedAt); return `<div class="alert" style="cursor:default" data-id="${esc(g.id)}"><span class="badge confirmed">${esc(g.finalScore?.home ?? 0)}–${esc(g.finalScore?.away ?? 0)}</span>
+    <div><b>${esc(g.names?.home || 'HOME')} vs ${esc(g.names?.away || 'AWAY')}</b><small>${esc(d.toLocaleDateString())} ${esc(d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }))} · ${fmtDur(g.durationSec || 0)}${g.location?.text ? ' · ' + esc(g.location.text) : ''} · ${(g.calls || []).filter(c => c.decision === 'confirmed').length} call(s) · ${g.segments.length ? g.segments.length + ' video(s)' : 'no video'}</small></div>
+    <span class="row" style="display:flex;gap:4px">${g.segments.length ? '<button class="sm h-watch">▶ Watch</button>' : ''}<button class="sm h-dl">⬇</button><button class="sm danger h-del">🗑</button></span></div>`; }).join('') : '<div class="pad muted small">No games yet. Games are saved automatically when someone wins, when a recording stops, or with 💾 Save game.</div>';
+  $('historyList').querySelectorAll('[data-id]').forEach(row => {
+    const id = row.dataset.id;
+    row.querySelector('.h-watch')?.addEventListener('click', () => watchGame(id));
+    row.querySelector('.h-dl').onclick = async () => { const g = await GameStore.getGame(id); for (const sg of g.segments) download(await GameStore.segmentBlob(sg.id, sg.mime), sg.file); download(new Blob([JSON.stringify(g.info || g, null, 2)], { type: 'application/json' }), `${g.id}_match-info.json`); };
+    row.querySelector('.h-del').onclick = async () => { if (!confirm('Delete this game and its videos?')) return; await GameStore.deleteGame(id); renderHistory(); };
+  });
+}
+async function watchGame(id) {
+  const g = await GameStore.getGame(id); if (!g) return; const v = $('histVideo');
+  $('histTitle').textContent = `${g.names?.home} ${g.finalScore?.home}–${g.finalScore?.away} ${g.names?.away} · ${new Date(g.startedAt).toLocaleString()}`;
+  $('histCam').innerHTML = g.segments.map((sg, i) => `<option value="${i}">${esc(sg.label || sg.camera)}</option>`).join('');
+  const load = async () => { const sg = g.segments[+$('histCam').value]; if (v.src) URL.revokeObjectURL(v.src); v.src = URL.createObjectURL(await GameStore.segmentBlob(sg.id, sg.mime)); };
+  $('histCam').onchange = load; await load(); $('videoModal').hidden = false;
+}
+$('histClose').onclick = () => { $('videoModal').hidden = true; $('histVideo').pause(); };
+renderHistory();
+clock.on(e => { if (e.type === 'clock_start' && !S.gameStartedAt) S.gameStartedAt = new Date().toISOString(); });
+score.on(e => { if (e.type === 'score' && !S.gameStartedAt) S.gameStartedAt = new Date().toISOString(); });
 
 // ---------- settings ----------
 const saveSettings = () => store.set('cs-settings', S.settings);

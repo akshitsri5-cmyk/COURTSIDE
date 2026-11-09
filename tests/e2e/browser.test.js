@@ -105,29 +105,39 @@ test('automatic half-court calibration (no clicks) on a (synthetic) court video 
   } finally { await b.close(); }
 });
 
-test('game recording: every camera angle + match info (date, times, location, score) is saved', async () => {
+test('previous games: recording + result saved in the app, watched in-app, downloaded, survives reload, deleted', async () => {
   const b = await chromium.launch({ args: FAKE });
   try {
     const ctx = await b.newContext({ permissions: ['camera'], acceptDownloads: true });
-    await ctx.addInitScript(() => { delete window.showDirectoryPicker; }); // headless: use the in-memory + download path
     const dash = await ctx.newPage(); await dash.goto(BASE); await waitCode(dash);
     await dash.click('#addLocal'); await waitLive(dash, 1);
     await dash.fill('#locText', 'Test court, Noida'); await dash.dispatchEvent('#locText', 'change');
+    await dash.fill('#nameA', 'Akshit'); await dash.dispatchEvent('#nameA', 'change');
     await dash.click('#recBtn'); await dash.waitForFunction(() => /REC/.test(document.getElementById('recStatus').textContent), null, { timeout: 5000 });
-    await dash.locator('[data-team="home"][data-points="2"]').click(); await dash.waitForTimeout(3500);
-    const downloads = []; dash.on('download', d => downloads.push(d));
-    await dash.click('#recBtn'); await dash.waitForFunction(() => /saved/.test(document.getElementById('recStatus').textContent), null, { timeout: 15000 });
-    await dash.waitForTimeout(500);
-    const names = downloads.map(d => d.suggestedFilename());
+    await dash.locator('[data-team="home"][data-points="2"]').click(); await dash.waitForTimeout(12000); // > one 10 s chunk + remainder
+    await dash.click('#recBtn'); await dash.waitForFunction(() => /saved in Previous games/.test(document.getElementById('recStatus').textContent), null, { timeout: 15000 });
+    const row = dash.locator('#historyList [data-id]').first(); await row.waitFor({ timeout: 5000 });
+    const txt = await row.textContent(); assert.match(txt, /AKSHIT vs/); assert.match(txt, /2–0/); assert.match(txt, /Test court, Noida/); assert.match(txt, /1 video/);
+    await row.locator('.h-watch').click(); await dash.waitForFunction(() => { const v = document.getElementById('histVideo'); return !document.getElementById('videoModal').hidden && v.readyState >= 1; }, null, { timeout: 10000 });
+    await dash.click('#histClose');
+    const downloads = []; dash.on('download', d => downloads.push(d)); await row.locator('.h-dl').click(); await dash.waitForTimeout(1500);
     const video = downloads.find(d => d.suggestedFilename().endsWith('.webm')), info = downloads.find(d => d.suggestedFilename().endsWith('_match-info.json'));
-    assert.ok(video && info, names.join(', ')); assert.match(video.suggestedFilename(), /^COURTSIDE_.+_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}_.+\.webm$/);
-    assert.ok(fs.statSync(await video.path()).size > 10000, 'video has data');
-    const meta = JSON.parse(fs.readFileSync(await info.path(), 'utf8'));
-    assert.equal(meta.location.text, 'Test court, Noida'); assert.ok(meta.startedAt && meta.endedAt && meta.durationSec >= 3);
-    assert.equal(meta.finalScore.home, 2); assert.equal(meta.cameras.length, 1); assert.ok(meta.timezone);
+    assert.ok(video && info, downloads.map(d => d.suggestedFilename()).join()); assert.ok(fs.statSync(await video.path()).size > 10000, 'video has data');
+    const meta = JSON.parse(fs.readFileSync(await info.path(), 'utf8')); assert.equal(meta.location.text, 'Test court, Noida'); assert.equal(meta.finalScore.home, 2); assert.ok(meta.startedAt && meta.endedAt);
+    await dash.reload(); await waitCode(dash); await dash.locator('#historyList [data-id]').first().waitFor({ timeout: 5000 }); // persisted
+    dash.on('dialog', d => d.accept()); await dash.locator('#historyList .h-del').first().click();
+    await dash.waitForFunction(() => !document.querySelector('#historyList [data-id]'), null, { timeout: 5000 });
   } finally { await b.close(); }
 });
 
+test('previous games: the result is saved automatically when a player wins (no recording needed)', async () => {
+  const b = await chromium.launch();
+  try {
+    const dash = await (await b.newContext()).newPage(); await dash.goto(BASE); await waitCode(dash);
+    for (let i = 0; i < 6; i++) await dash.locator('[data-team="away"][data-points="2"]').click(); // 12 >= 11
+    await dash.waitForFunction(() => /0–12/.test(document.getElementById('historyList').textContent), null, { timeout: 8000 });
+  } finally { await b.close(); }
+});
 test('Apple Watch: watch page shows live score/clock/calls (secret link) and calls are pushed to ntfy', async () => {
   const b = await chromium.launch();
   try {
