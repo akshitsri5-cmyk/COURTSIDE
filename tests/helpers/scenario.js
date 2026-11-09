@@ -74,8 +74,8 @@ export class Scenario {
 }
 
 /** Run a scenario through a GameAnalyzer. Returns collected events/alerts and per-frame states. */
-export function run(analyzer, sc, { t0 = 0, t1 = 5, fps = 30, onTick } = {}) {
-  for (const cam of sc.cams) analyzer.setCalibration(cam.id, { Hc2i: cam.H, width: cam.width, height: cam.height });
+export function run(analyzer, sc, { t0 = 0, t1 = 5, fps = 30, onTick, calibrate = true } = {}) {
+  if (calibrate) for (const cam of sc.cams) analyzer.setCalibration(cam.id, { Hc2i: cam.H, width: cam.width, height: cam.height });
   const res = { actions: [], alerts: [], states: [], gtMap: [] };
   for (let k = 0; t0 + k / fps <= t1; k++) {
     const t = t0 + k / fps, fr = sc.frame(t);

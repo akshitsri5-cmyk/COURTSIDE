@@ -102,7 +102,7 @@ export function jumpShotPlay({ spot = [5.2, 0.5], made = true, team = 0 } = {}) 
  * attacker's path at contact), 'none' (players pass 3 m apart in depth: overlap in one camera only).
  * Contact happens at tContact = 2.5 s (team clustering needs ~2 s of observations).
  */
-export function contactPlay(kind = 'charge') {
+export function contactPlay(kind = 'charge', { oneVsOne = false } = {}) {
   const tC = 2.5, H0 = [5.5, 0], v = 1.6; // attacker speed (m/s) along +x
   const hx = t => Math.min(H0[0] + v * t, H0[0] + v * tC); // attacker stops at contact (impact)
   const Dset = [H0[0] + v * tC + 0.38, 0];
@@ -115,8 +115,7 @@ export function contactPlay(kind = 'charge') {
   const sc = new Scenario({ cameras: STANDARD_CAMS })
     .addPlayer({ id: 'H', team: 0, state: t => ({ ...stand(H(t), 0)(), hands: handsOnBall(ball(t), 0) }) })
     .addPlayer({ id: 'D', team: 1, state: t => ({ ...stand(Dpos(t), Math.PI)() }) })
-    .addPlayer({ id: 'O', team: 0, state: stand([4, -4], 0) })
-    .addPlayer({ id: 'E', team: 1, state: stand([3, 4], 0) })
     .setBall(ball);
+  if (!oneVsOne) sc.addPlayer({ id: 'O', team: 0, state: stand([4, -4], 0) }).addPlayer({ id: 'E', team: 1, state: stand([3, 4], 0) });
   return { sc, tC };
 }

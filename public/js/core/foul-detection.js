@@ -69,7 +69,7 @@ export class FoulDetector {
     const handler = poss.controller || null, offenseTeam = poss.team ?? poss.lastControllerTeam ?? null;
     const shooter = this.recentShots.find(s => t - s.t < 1.0 && t - s.t > -0.4 && (s.player === a.id || s.player === b.id))?.player
       || [a, b].find(p => p.id === handler && p.airborne && Object.values(p.views || {}).some(v => handsAboveShoulders(v.pose)))?.id || null;
-    const snap = p => ({ id: p.id, team: p.team, pos: p.pos.slice(), vel: (p.vel || [0, 0]).slice(), grounded: p.groundedFeet ?? null, airborne: !!p.airborne, ext: Math.max(0, ...Object.values(p.views || {}).map(v => armExtension(v.pose, bodyHeight(v.pose, v.bbox)) || 0)) });
+    const snap = p => ({ id: p.id, team: p.team, pseudo: !!p.pseudo, pos: p.pos.slice(), vel: (p.vel || [0, 0]).slice(), grounded: p.groundedFeet ?? null, airborne: !!p.airborne, ext: Math.max(0, ...Object.values(p.views || {}).map(v => armExtension(v.pose, bodyHeight(v.pose, v.bbox)) || 0)) });
     return { handler, offenseTeam, shooter, a: snap(a), b: snap(b), t };
   }
   classify(ep, t, players) {
@@ -92,7 +92,7 @@ export class FoulDetector {
     if (shooter) { type = 'shooting_foul'; fouler = other.id; reasons.push(`${shooter.id} was in the act of shooting; contact by ${other.id}.`); }
     else if (handler) {
       const defStill = Math.hypot(...before(def.id)) < A.defenderStationarySpeed && (def.grounded === null || def.grounded >= 2);
-      const inRA = this.cfg.fouls.noChargeSemiCircle && this.model.inRestrictedArea(def.pos);
+      const inRA = this.cfg.fouls.noChargeSemiCircle && !def.pseudo && this.model.inRestrictedArea(def.pos);
       const hApp = toward(handler, def), dApp = toward(def, handler);
       reasons.push(`Ball handler ${handler.id} approach speed ${hApp.toFixed(1)} m/s; defender ${def.id} speed ${Math.hypot(...before(def.id)).toFixed(1)} m/s (toward handler ${dApp.toFixed(1)} m/s)${inRA ? '; defender inside the no-charge semi-circle' : ''}.`);
       if (hApp > 1.0 && defStill && !inRA) { type = 'charging_foul'; fouler = handler.id; reasons.push('Defender had an established, stationary position in the path; contact initiated by the ball handler.'); }

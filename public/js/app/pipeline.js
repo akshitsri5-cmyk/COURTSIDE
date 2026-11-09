@@ -6,6 +6,7 @@ import { findBallCandidates } from '../core/ball-tracking.js';
 import { attachPoses } from '../core/game-analyzer.js';
 import { iou } from '../core/player-tracking.js';
 import { CameraHealthMonitor } from '../core/camera-health.js';
+import { RimWatcher, regions } from '../core/rim-watcher.js';
 import { PoseEstimator } from './detectors.js';
 
 export const ANALYSIS_WIDTH = 960;
@@ -32,6 +33,7 @@ export class CameraPipeline {
   async onFrame(now, meta) {
     const stamp = this.timestamper.stamp(this.cam.id, meta, now); const t = stamp.serverMs / 1000;
     this.health.noteFrame(now / 1000); this.stampMethod = stamp.method;
+    this.watchRim(t); // score agent: every video frame, independent of the (slower) AI analysis
     if (this.lumSeries) { this.tctx.drawImage(this.cam.video, 0, 0, 96, 54); const d = this.tctx.getImageData(0, 0, 96, 54).data; let s = 0; for (let i = 0; i < d.length; i += 4) s += d[i] * 0.3 + d[i + 1] * 0.59 + d[i + 2] * 0.11; this.lumSeries.push({ t: stamp.serverMs, y: s / (96 * 54) }); }
     if (!this.enabled || this.busy || !this.detector.kind || this.cam.paused) return;
     // adaptive pacing: analysis may use at most ~half of the main thread, whatever FPS was requested
@@ -66,6 +68,19 @@ export class CameraPipeline {
     } catch (e) { this.error = e.message; console.warn('pipeline', this.cam.id, e); }
     finally { this.busy = false; }
   }
+  /** Rim position (analysis px): manual mark, else from the court calibration. */
+  rim() { return this.opts.rimOf?.(this.cam.id) || this.analyzer.camera(this.cam.id).calib?.rims?.find(r => r.side === 1) || null; }
+  watchRim(t) {
+    const rim = this.rim(), v = this.cam.video; if (!rim || !v.videoWidth) return;
+    if (!this.rimW || this.rimKey !== `${rim.u},${rim.v},${rim.rx}`) { this.rimW = new RimWatcher(); this.rimKey = `${rim.u},${rim.v},${rim.rx}`; }
+    const k = v.videoWidth / ANALYSIS_WIDTH, R = regions(rim), c = this.rimC || (this.rimC = Object.assign(document.createElement('canvas'), { width: 8, height: 8 })), x = this.rimX || (this.rimX = c.getContext('2d', { willReadFrequently: true }));
+    const samples = {};
+    for (const [name, [rx, ry, rw, rh]] of Object.entries(R)) {
+      x.drawImage(v, Math.max(0, rx * k), Math.max(0, ry * k), Math.max(1, rw * k), Math.max(1, rh * k), 0, 0, 8, 8);
+      const d = x.getImageData(0, 0, 8, 8).data, g = new Float32Array(64); for (let i = 0; i < 64; i++) g[i] = d[4 * i] * 0.3 + d[4 * i + 1] * 0.59 + d[4 * i + 2] * 0.11; samples[name] = g;
+    }
+    const ev = this.rimW.update(t, samples); if (ev) this.opts.onBasket?.({ ...ev, cam: this.cam.id });
+  }
   recordFrame(t) {
     const c = this.clipCanvas, w = 480, h = Math.round(480 * this.canvas.height / this.canvas.width); if (c.width !== w) { c.width = w; c.height = h; }
     const x = c.getContext('2d'); x.drawImage(this.canvas, 0, 0, w, h);
@@ -87,13 +102,14 @@ export class CameraPipeline {
       x.strokeStyle = col; x.strokeRect(b[0] * s, b[1] * s, b[2] * s, b[3] * s);
       // court-fused ID when every live camera is calibrated, otherwise the clothing-based cross-camera identity (A/B)
       const allCal = [...this.analyzer.cams.values()].every(c => c.calib), lk = this.analyzer.linker.label(this.cam.id, tr.id);
-      const label = (allCal && g ? g.label || g.id : lk ? 'Player ' + lk : '…') + (tr.pose ? '' : ' ·');
+      const label = (allCal && g ? g.label || g.id : lk ? (this.opts.nameOf?.(lk) || 'Player ' + lk) : '…') + (tr.pose ? '' : ' ·');
       x.fillStyle = col; x.fillRect(b[0] * s, b[1] * s - 15, x.measureText(label).width + 8, 15); x.fillStyle = '#0b1010'; x.fillText(label, b[0] * s + 4, b[1] * s - 4);
       if (showPose && tr.pose && tr.poseT === tr.lastSeen) { x.strokeStyle = 'rgba(140,200,255,.85)'; x.lineWidth = 1.5; for (const [a, c] of [[11, 12], [11, 13], [13, 15], [12, 14], [14, 16], [11, 23], [12, 24], [23, 24], [23, 25], [25, 27], [24, 26], [26, 28], [27, 31], [28, 32]]) { const p = tr.pose[a], q = tr.pose[c]; if (p.v > 0.5 && q.v > 0.5) { x.beginPath(); x.moveTo(p.x * s, p.y * s); x.lineTo(q.x * s, q.y * s); x.stroke(); } } x.lineWidth = 2; }
     }
     const bt = this.analyzer.camera(this.cam.id).ball, e = bt.estimate();
     if (e) { x.strokeStyle = e.state === 'tracking' ? '#ff914d' : 'rgba(255,145,77,.5)'; x.setLineDash(e.state === 'tracking' ? [] : [4, 3]); x.beginPath(); x.arc(e.u * s, e.v * s, Math.max(5, e.r * s * 1.3), 0, 7); x.stroke(); x.setLineDash([]);
       x.strokeStyle = 'rgba(255,145,77,.45)'; x.beginPath(); bt.history.slice(-20).forEach((h, i) => i ? x.lineTo(h.u * s, h.v * s) : x.moveTo(h.u * s, h.v * s)); x.stroke(); }
-    if (calib) for (const r of calib.rims) { x.strokeStyle = '#ff7777'; x.beginPath(); x.ellipse(r.u * s, r.v * s, r.rx * s, Math.max(1, r.ry * s), 0, 0, 7); x.stroke(); }
+    const mr = this.opts.rimOf?.(this.cam.id); if (mr) { x.strokeStyle = '#ffd18c'; x.lineWidth = 2; x.beginPath(); x.ellipse(mr.u * s, mr.v * s, mr.rx * s, Math.max(2, mr.rx * 0.3 * s), 0, 0, 7); x.stroke(); }
+    if (calib && !mr) for (const r of calib.rims) { x.strokeStyle = '#ff7777'; x.beginPath(); x.ellipse(r.u * s, r.v * s, r.rx * s, Math.max(1, r.ry * s), 0, 0, 7); x.stroke(); }
   }
 }

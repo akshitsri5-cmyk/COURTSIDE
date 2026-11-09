@@ -157,3 +157,11 @@ test('fouls are still detected at a low analysis rate (3 fps, CPU-only laptops)'
   const r = run(new GameAnalyzer({ ruleset: FIBA }), plays.contactPlay('charge').sc, { t1: 4.5, fps: 3 });
   assert.ok(r.alerts.some(a => a.type === 'charging_foul' || a.type === 'personal_foul' || a.type === 'blocking_foul'), r.alerts.map(a => a.type).join() || 'no alert');
 });
+
+test('1v1 WITHOUT court calibration: charge detected from screen contact + size/foot depth; depth-overlap rejected', () => {
+  const R = getRuleset('1V1');
+  const c = run(new GameAnalyzer({ ruleset: R }), plays.contactPlay('charge', { oneVsOne: true }).sc, { t1: 4.5, fps: 15, calibrate: false });
+  assert.ok(c.alerts.some(a => /foul/.test(a.type)), 'contact foul flagged without calibration: ' + c.alerts.map(a => a.type));
+  const n = run(new GameAnalyzer({ ruleset: R }), plays.contactPlay('none', { oneVsOne: true }).sc, { t1: 4.5, fps: 15, calibrate: false });
+  assert.equal(n.alerts.filter(a => /foul/.test(a.type)).length, 0, 'players 3 m apart in depth (overlapping on screen) are not a foul');
+});

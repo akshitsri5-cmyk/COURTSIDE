@@ -129,6 +129,8 @@ export class GameAnalyzer {
       const pfa = primary ? this.feet.get(g.id + '@' + primary) : null;
       players.push({ id: g.id, label: g.label, team: g.team, isReferee: g.isReferee, pos: g.pos.slice(), vel: g.vel.slice(), speed: g.speed, views, primaryCam: primary, airborne: !!pfa?.airborne, groundedFeet: pfa ? pfa.groundedFeet().length : null, history: tt => g.at(tt), cameras: g.cameras });
     }
+    // 1v1 without court calibration: build the two players from the clothing-based identities (A/B) instead
+    if (this.cfg.oneOnOne && !players.length) players.push(...this.imagePlayers(t, footEvents));
     this.rules.addFootEvents(footEvents);
 
     // ---- 3. ball: per-camera estimates, reversal events, multi-view triangulation ----
@@ -177,6 +179,38 @@ export class GameAnalyzer {
       g.team = other ? 1 - other.team : (this.lastSideSeen?.[0] && !this.lastSideSeen?.[1] ? 1 : 0);
     }
     this.lastSideSeen = { 0: act.some(g => g.team === 0), 1: act.some(g => g.team === 1) };
+  }
+  /**
+   * Uncalibrated 1v1: players from the appearance linker. Positions are PSEUDO-metres from one reference
+   * camera: sideways = foot x / body height x 1.9 m, depth = ~8 m x ln(reference height / height) (a player
+   * further from the camera looks smaller). Good enough to reject "overlap on screen but far apart" for fouls;
+   * not used for boundaries or the 3-point line.
+   */
+  imagePlayers(t, footEvents) {
+    const ids = this.linker.ids.map(I => I.name), views = {};
+    for (const [cam, c] of this.cams) for (const tr of c.tracker.active()) {
+      if (t - tr.lastSeen > 0.4) continue; const n = this.linker.label(cam, tr.id); if (!n) continue;
+      (views[n] ||= {})[cam] = { bbox: tr.bbox, pose: tr.poseT === tr.lastSeen ? tr.pose : null, trackId: tr.id, t: tr.lastSeen };
+    }
+    const cams = [...this.cams.keys()], ref = cams.find(c => ids.every(n => views[n]?.[c])) || cams.find(c => ids.some(n => views[n]?.[c]));
+    const hs = ids.map(n => views[n]?.[ref]?.bbox[3]).filter(Boolean), Href = hs.length ? hs.reduce((a, b) => a + b) / hs.length : 200;
+    this.imgHist ||= {}; const out = [];
+    for (const n of ids) {
+      const V = views[n]; if (!V) continue; const rv = V[ref] || Object.values(V)[0], [x, y, w, h] = rv.bbox;
+      const pos = [((x + w / 2) / Href) * 1.9, 8 * Math.log(Href / h)];
+      const H = this.imgHist[n] ||= []; const prev = H[H.length - 1], dt = prev ? t - prev.t : 0;
+      const vel = prev && dt > 0 ? [(pos[0] - prev.p[0]) / dt, (pos[1] - prev.p[1]) / dt] : [0, 0];
+      H.push({ t, p: pos, v: vel }); while (H.length && t - H[0].t > 6) H.shift();
+      let primary = null, bestQ = -1;
+      for (const [cam, v] of Object.entries(V)) {
+        const key = n + '@' + cam, fa = this.feet.get(key) || this.feet.set(key, new FootContactAnalyzer()).get(key);
+        if (v.pose && fa.lastPoseT !== v.t) { fa.lastPoseT = v.t; for (const e of fa.update(v.t, v.pose, v.bbox, null)) footEvents.push({ ...e, player: n, cam, primary: true, speed: Math.hypot(...vel), sigma: 0.3 }); }
+        if (fa.quality() > bestQ) { bestQ = fa.quality(); primary = cam; }
+      }
+      const pfa = primary ? this.feet.get(n + '@' + primary) : null;
+      out.push({ id: n, label: null, team: ids.indexOf(n), isReferee: false, pseudo: true, pos, vel, speed: Math.hypot(...vel), views: V, primaryCam: primary, airborne: !!pfa?.airborne, groundedFeet: pfa ? pfa.groundedFeet().length : null, history: tt => { let b = null; for (const q of H) if (!b || Math.abs(q.t - tt) < Math.abs(b.t - tt)) b = q; return b; }, cameras: Object.keys(V) });
+    }
+    return out;
   }
   /** Per-camera analysed frame rate (detections per second), the rate that limits temporal rules. */
   cameraFps() { let best = 0; for (const c of this.cams.values()) { const h = c.tracker.tracks.find(t => t.history.length > 3)?.history; if (h) { const n = h.length; best = Math.max(best, (n - 1) / Math.max(1e-3, h[n - 1].t - h[0].t)); } } return best || 10; }

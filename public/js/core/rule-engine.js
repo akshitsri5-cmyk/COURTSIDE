@@ -148,6 +148,6 @@ export class RuleEngine {
     return makeAlert(this.cfg, { type: 'player_out_of_bounds', label: ALERT_LABELS.player_out_of_bounds, t: last.t, tStart: last.t - 2, tEnd: last.t + 1, players: [pid], team: poss.team, confidence: (certain ? 0.75 : 0.45) * (last.q ?? 0.7), cams: [last.cam], reasons: [`Ball handler's ${last.foot} foot touched the floor ${m <= 0 ? (-m).toFixed(2) + ' m beyond' : m.toFixed(2) + ' m inside'} the boundary line inner edge (±${sig.toFixed(2)} m).`], evidence: { court: last.court, margin: m }, forceReview: !certain });
   }
   trackPlayersOut(t, players) { // informational: players (without ball) standing out of bounds
-    for (const p of players) { const out = p.pos && this.model.insideMargin(p.pos) < -0.3; const st = this.outState.get(p.id) || {}; if (out && !st.out) this.info.push({ type: 'player_out', t, player: p.id, pos: p.pos }); st.out = out; this.outState.set(p.id, st); }
+    for (const p of players) { if (p.pseudo) continue; /* no court frame without calibration */ const out = p.pos && this.model.insideMargin(p.pos) < -0.3; const st = this.outState.get(p.id) || {}; if (out && !st.out) this.info.push({ type: 'player_out', t, player: p.id, pos: p.pos }); st.out = out; this.outState.set(p.id, st); }
   }
 }

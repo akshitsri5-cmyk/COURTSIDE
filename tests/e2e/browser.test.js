@@ -176,3 +176,33 @@ test('phone dashcam: "Record on this phone" saves a full-quality file on the pho
     assert.match(dl.suggestedFilename(), /^COURTSIDE_.+_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}\.(webm|mp4)$/); assert.ok(fs.statSync(await dl.path()).size > 10000);
   } finally { await b.close(); }
 });
+
+test('score agent: rim found automatically (no clicks), a ball dropping through the net is scored', async () => {
+  const y4m = path.join(ROOT, 'tests/fixtures/hoop.y4m'), W = 640, H = 360;
+  if (!fs.existsSync(y4m)) {
+    const frames = [];
+    for (let k = 0; k < 90; k++) {
+      const d = new Uint8ClampedArray(W * H * 4);
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { const i = 4 * (y * W + x), sky = y < 150; d[i] = sky ? 128 : 160; d[i + 1] = sky ? 158 : 128; d[i + 2] = sky ? 178 : 98; d[i + 3] = 255; }
+      const px = (x, y, c) => { x = Math.round(x); y = Math.round(y); if (x < 0 || y < 0 || x >= W || y >= H) return; const i = 4 * (y * W + x); d[i] = c[0]; d[i + 1] = c[1]; d[i + 2] = c[2]; };
+      for (let y = 40; y < 105; y++) for (let x = 300; x < 400; x++) px(x, y, [235, 235, 235]);
+      for (let y = 70; y < 100; y++) for (let x = 335; x < 365; x++) if (y === 70 || y === 99 || x === 335 || x === 364) px(x, y, [200, 40, 40]);
+      for (let a = 0; a < 2 * Math.PI; a += 0.005) for (let t = -1; t <= 1; t++) px(350 + 26 * Math.cos(a), 110 + t + 5 * Math.sin(a), [220, 80, 30]);
+      const swish = k >= 40 && k <= 50;
+      for (let y = 116; y < 150; y++) for (let x = 330; x < 371; x++) if (((x + y + (swish ? k * 2 : 0)) % 5 === 0) || ((x - y) % 5 === 0)) px(x, y, [245, 245, 245]);
+      const by = 20 + (k - 30) * 11; if (k >= 30 && k <= 46) for (let y = -9; y <= 9; y++) for (let x = -9; x <= 9; x++) if (x * x + y * y <= 81) px(350 + x, by + y, [185, 185, 178]); // grey (dirty white) ball
+      frames.push(d);
+    }
+    writeY4M(y4m, frames, W, H);
+  }
+  const b = await chromium.launch({ args: [...FAKE, '--use-file-for-fake-video-capture=' + y4m] });
+  try {
+    const dash = await (await b.newContext({ permissions: ['camera'] })).newPage(); await dash.goto(BASE); await waitCode(dash);
+    await dash.click('#addLocal'); await waitLive(dash, 1);
+    await dash.waitForFunction(() => /rim found automatically/.test(document.getElementById('timeline').textContent), null, { timeout: 30000 });
+    const rim = await dash.evaluate(() => courtside.S.rims.local1); assert.ok(Math.hypot(rim.u - 525, rim.v - 165) < 12, 'rim position (analysis px): ' + JSON.stringify(rim));
+    await dash.waitForFunction(() => /Basket detected at the rim/.test(document.getElementById('timeline').textContent), null, { timeout: 20000 });
+    const r = await dash.evaluate(() => ({ score: courtside.score.score, pending: courtside.score.pending.length }));
+    assert.ok(r.score.home + r.score.away > 0 || r.pending > 0, JSON.stringify(r));
+  } finally { await b.close(); }
+});

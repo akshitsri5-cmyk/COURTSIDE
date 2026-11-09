@@ -14,13 +14,15 @@ import { FrameTimestamper, detectFlash, flashOffsets } from '../core/camera-sync
 import { makeAlert } from '../core/rule-engine.js';
 import { applyH, hDepth } from '../core/homography.js';
 import { GameRecorder } from './game-recorder.js';
+import { fuseBaskets } from '../core/rim-watcher.js';
+import { RimFinder } from '../core/rim-finder.js';
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const store = { get: (k, d = null) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } }, set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { } } };
 
 // ---------- state ----------
-const S = { match: store.get('cs-host'), pipelines: new Map(), cards: new Map(), selectedAlert: null, teamSwap: false, info: null, settings: store.get('cs-settings', { fps: 10, pose: true, ruleset: '1V1' }) };
+const S = { rims: {}, baskets: [], match: store.get('cs-host'), pipelines: new Map(), cards: new Map(), selectedAlert: null, teamSwap: false, info: null, settings: store.get('cs-settings', { fps: 10, pose: true, ruleset: '1V1' }) };
 if (!['1V1', '3X3', 'HALF23'].includes(S.settings.ruleset)) S.settings.ruleset = '1V1'; // half court only
 let ruleset = getRuleset(S.settings.ruleset), model = new CourtModel(ruleset.court);
 const clock = new GameClock(ruleset.timing);
@@ -104,15 +106,26 @@ function makeCard(c) {
   $('emptyCard')?.remove();
   const el = document.createElement('div'); el.className = 'camera-card'; el.dataset.cam = c.id;
   el.innerHTML = `<div class="camera-head"><b class="cname"></b><span class="camera-state">—</span></div><div class="stage"></div><div class="issues"></div><div class="camera-foot"></div>
-   <div class="controls"><button class="sm act-cal" title="Only needed if automatic court detection fails">Manual court fix</button><button class="sm act-ana">Analysis on</button><button class="sm act-lines">Court lines</button>${c.kind === 'PHONE' ? '<button class="sm act-flip">Flip</button><button class="sm act-pause">Pause</button><button class="sm act-torch">Torch</button><button class="sm act-hd">720p/480p</button>' : ''}<button class="sm danger act-rm">Remove</button></div>`;
+   <div class="controls"><button class="sm act-rim" title="Only needed if the rim is not found automatically (e.g. black/white rims)">🏀 Rim: searching… (mark)</button><button class="sm act-cal" title="Only needed if automatic court detection fails">Manual court fix</button><button class="sm act-ana">Analysis on</button><button class="sm act-lines">Court lines</button>${c.kind === 'PHONE' ? '<button class="sm act-flip">Flip</button><button class="sm act-pause">Pause</button><button class="sm act-torch">Torch</button><button class="sm act-hd">720p/480p</button>' : ''}<button class="sm danger act-rm">Remove</button></div>`;
   const stage = el.querySelector('.stage'), overlay = document.createElement('canvas'); stage.append(c.video, overlay);
   $('cameraGrid').append(el);
   const card = { el, overlay, showLines: true, hd: true, torch: false }; S.cards.set(c.id, card);
   const calib = store.get(`cs-calib-${S.match?.matchId}-${c.id}`);
-  const p = new CameraPipeline({ cam: c, analyzer, detector, timestamper, recorder, serverNow: serverNowMs, opts: { get ballColour() { return S.settings.ballColour || 'both'; }, get fps() { return S.settings.fps; }, get cameraCount() { return [...S.pipelines.values()].filter(x => x.enabled).length; }, get pose() { return S.settings.pose; }, poseModel: '/models/pose_landmarker_lite.task', drawCourt } });
+  const p = new CameraPipeline({ cam: c, analyzer, detector, timestamper, recorder, serverNow: serverNowMs, opts: { rimOf: id => S.rims[id] || null, nameOf: lk => nameOfId(lk), onBasket: ev => onBasket(ev), get ballColour() { return S.settings.ballColour || 'both'; }, get fps() { return S.settings.fps; }, get cameraCount() { return [...S.pipelines.values()].filter(x => x.enabled).length; }, get pose() { return S.settings.pose; }, poseModel: '/models/pose_landmarker_lite.task', drawCourt } });
   S.pipelines.set(c.id, p);
   if (calib) { analyzer.setCalibration(c.id, calib); if (calib.refThumb) p.health.setReference(Float32Array.from(calib.refThumb), 96, 54); if (calib.fit) p.health.noteCourtFit(calib.fit, true); }
   el.querySelector('.act-cal').onclick = () => openCalibration(c.id);
+  el.querySelector('.act-rim').onclick = () => { S.rimMarking = { cam: c.id, centre: null }; timeline(`${c.label}: click the CENTRE of the rim in the video, then its left or right EDGE.`); el.querySelector('.act-rim').textContent = '… click rim centre'; };
+  stage.addEventListener('click', e => { // rim marking directly on the live video (no calibration needed)
+    const M = S.rimMarking; if (!M || M.cam !== c.id) return; const sz = p.size(); if (!sz) return;
+    const r = stage.getBoundingClientRect(), sc = Math.min(r.width / sz.w, r.height / sz.h), ox = (r.width - sz.w * sc) / 2, oy = (r.height - sz.h * sc) / 2;
+    const u = (e.clientX - r.left - ox) / sc, v = (e.clientY - r.top - oy) / sc;
+    if (!M.centre) { M.centre = [u, v]; el.querySelector('.act-rim').textContent = '… click rim edge'; return; }
+    const rim = { side: 1, u: M.centre[0], v: M.centre[1], rx: Math.max(4, Math.abs(u - M.centre[0])), ry: Math.max(2, Math.abs(u - M.centre[0]) * 0.3), source: 'manual' };
+    S.rims[c.id] = rim; store.set(`cs-rim-${S.match?.matchId}-${c.id}`, rim); S.rimMarking = null; el.querySelector('.act-rim').textContent = '🏀 Rim ✓ (re-mark)';
+    timeline(`${c.label}: rim marked — automatic scoring active for this camera.`);
+  });
+  { const saved = store.get(`cs-rim-${S.match?.matchId}-${c.id}`); if (saved) { S.rims[c.id] = saved; el.querySelector('.act-rim').textContent = saved.source === 'auto' ? '🏀 Rim: auto ✓ (re-mark)' : '🏀 Rim ✓ (re-mark)'; } }
   el.querySelector('.act-ana').onclick = e => { p.enabled = !p.enabled; analyzer.camera(c.id).enabled = p.enabled; e.target.textContent = p.enabled ? 'Analysis on' : 'Analysis off'; };
   el.querySelector('.act-lines').onclick = () => card.showLines = !card.showLines;
   el.querySelector('.act-rm').onclick = () => { if (confirm('Remove ' + c.label + '?')) { store.set(`cs-calib-${S.match?.matchId}-${c.id}`, null); cm.remove(c.id); } };
@@ -150,10 +163,42 @@ setInterval(() => {
 setInterval(() => { clock.tick(); }, 50);
 setInterval(() => cm?.pollStats(), 2000);
 
+// ---------- automatic rim finding (no clicks) ----------
+setInterval(() => {
+  for (const [id, p] of S.pipelines) {
+    const card = S.cards.get(id), have = S.rims[id], moved = p.healthReport?.issues?.some(i => i.code === 'moved');
+    if (have && !(have.source === 'auto' && moved)) continue;
+    if (have && moved) { delete S.rims[id]; p.rimFinder = null; }
+    if (analyzer.camera(id).calib?.rims?.length) continue; // the court calibration already located the rim
+    const img = p.grab(); if (!img) continue;
+    const r = (p.rimFinder ||= new RimFinder()).look(img); if (!r) continue;
+    S.rims[id] = r; store.set(`cs-rim-${S.match?.matchId}-${id}`, r);
+    card?.el.querySelector('.act-rim') && (card.el.querySelector('.act-rim').textContent = '🏀 Rim: auto ✓ (re-mark)');
+    timeline(`${cm.cams.get(id)?.label || id}: rim found automatically — automatic scoring active.`);
+  }
+}, 2500);
+
+// ---------- score agent (rim watcher) ----------
+function onBasket(ev) { S.baskets.push(ev); while (S.baskets.length > 20) S.baskets.shift(); }
+setInterval(() => {
+  const now = serverNowMs() / 1000, f = fuseBaskets(S.baskets, now); if (!f) return;
+  if (now - (S.lastBasketT || -99) < 3) return; // already counted (by the other agent)
+  S.lastBasketT = f.t;
+  const poss = analyzer.possession, team = poss.lastControllerTeam ?? poss.team ?? null;
+  const shot = analyzer.actions.lastShot && Math.abs(analyzer.actions.lastShot.t - f.t) < 4 ? analyzer.actions.lastShot : null;
+  const points = shot?.points ?? (ruleset.scoring?.fieldGoal ?? 2), pointsKnown = !!shot && !shot.pointsUncertain;
+  timeline(`Basket detected at the rim by ${f.cams.join(' + ')} (evidence ${f.confidence.toFixed(2)})${team === null ? ' — scorer unknown' : ''}.`, 'action');
+  const r = score.handleShotResult({ shotId: 'R' + Math.round(f.t * 10), result: 'made', confidence: f.confidence, points, pointsUncertain: false, team, t: f.t, player: shot?.player, reasons: ['rim watcher'] });
+  if (r.action === 'applied') { timeline(`+${points} ${teamName(team)} (automatic${pointsKnown ? '' : ', from the rim — tap "It was a ' + (ruleset.scoring.threePoint) + '" if it was from deep'})`, 'score'); clock.onMadeBasket(); if (!pointsKnown) S.upgradable = { side: score.sideOf(team), extra: ruleset.scoring.threePoint - points }; }
+  else if (r.action === 'pending') timeline('Basket needs confirmation: ' + r.reason, 'warn');
+  renderScore();
+}, 250);
 function teamName(team) { const side = score.sideOf(team); return side ? (ruleset.sideNames?.[side] || side.toUpperCase()) : 'side ?'; }
 function onAction(a) {
   if (a.type === 'shot') timeline(`Shot attempt by ${a.player} (${a.freeThrow ? 'free throw' : a.points + 'PT' + (a.pointsUncertain ? '?' : '')}) — ${a.reasons.join('; ')}`, 'action');
   if (a.type === 'shot_result') {
+    if (a.result === 'made' && Math.abs((S.lastBasketT ?? -99) - a.t) < 4) { timeline(`Shot ${a.shotId}: made (already counted by the rim watcher).`, 'action'); return; }
+    if (a.result === 'made') S.lastBasketT = a.t;
     timeline(`Shot ${a.shotId}: ${a.result.toUpperCase()} (evidence ${a.confidence.toFixed(2)}) — ${a.reasons.join('; ')}`, 'action');
     if (a.result !== 'missed') { score.autoEnabled = $('autoScore').checked; const r = score.handleShotResult(a); if (r.action === 'applied') { timeline(`+${a.points} ${teamName(a.team)} (automatic)`, 'score'); clock.onMadeBasket(); } if (r.action === 'pending') timeline(`Basket needs confirmation: ${r.reason}`, 'warn'); renderScore(); }
   }
@@ -236,13 +281,16 @@ function checkWin() {
 }
 function renderScore() {
   checkWin();
+  setTimeout(() => { if (S.upgradable && $('pendingScores') && !$('upgradeBtn')) { const d = document.createElement('div'); d.className = 'pending-item'; d.innerHTML = `Last basket counted as ${ruleset.scoring.fieldGoal}. <button class="sm" id="upgradeBtn">It was a ${ruleset.scoring.threePoint} (+${S.upgradable.extra})</button> <button class="sm" id="upgradeNo">OK</button>`; $('pendingScores').prepend(d);
+    $('upgradeBtn').onclick = () => { score.add(S.upgradable.side, S.upgradable.extra, { source: 'confirmed', t: serverNowMs() / 1000, note: 'upgraded to long-range basket' }); timeline(`Basket upgraded (+${S.upgradable.extra}).`, 'score'); S.upgradable = null; renderScore(); };
+    $('upgradeNo').onclick = () => { S.upgradable = null; renderScore(); }; } }, 0);
   $('homeScore').textContent = String(score.score.home).padStart(2, '0'); $('awayScore').textContent = String(score.score.away).padStart(2, '0');
   $('pendingScores').innerHTML = score.pending.map(p => `<div class="pending-item"><b>Confirm basket?</b> ${esc(p.player || '')} · ${p.side ? p.side.toUpperCase() : 'team ?'} · ${p.points}PT${p.pointsUncertain ? '?' : ''}<br><span class="muted">${esc(p.pendingReasons.join('; '))}</span><div class="row">${[1, 2, 3].map(n => `<button class="sm" data-s="${p.shotId}" data-p="${n}" data-side="home">HOME +${n}</button>`).join('')}${[1, 2, 3].map(n => `<button class="sm" data-s="${p.shotId}" data-p="${n}" data-side="away">AWAY +${n}</button>`).join('')}<button class="sm danger" data-s="${p.shotId}" data-p="0">No basket</button></div></div>`).join('');
   $('pendingScores').querySelectorAll('button').forEach(b => b.onclick = () => { const e = score.resolvePending(b.dataset.s, { points: +b.dataset.p, side: b.dataset.side }); timeline(e ? `+${e.points} ${e.side.toUpperCase()} (confirmed by referee)` : 'Basket rejected by referee', 'score'); if (e) clock.onMadeBasket(); renderScore(); });
 }
 document.querySelectorAll('[data-team]').forEach(b => b.onclick = () => { const e = score.add(b.dataset.team, +b.dataset.points, { source: 'manual', t: serverNowMs() / 1000 }); if (e) timeline(`${e.side.toUpperCase()} ${e.points > 0 ? '+' : ''}${e.points} (manual)`, 'score'); renderScore(); });
 $('undoScore').onclick = () => { const e = score.undo(); if (e) timeline(`Undo: ${e.side.toUpperCase()} ${e.points}`, 'score'); renderScore(); };
-$('swapTeams').onclick = () => { S.teamSwap = !S.teamSwap; score.teamMap = S.teamSwap ? { 0: 'away', 1: 'home' } : { 0: 'home', 1: 'away' }; timeline('Team colour mapping swapped.'); };
+$('swapTeams').onclick = () => { analyzer.linker.swap('A', 'B'); timeline(`Swapped: the player on camera labelled A is now ${nameOfId('A')}.`); };
 
 // ---------- clock ----------
 $('clockToggle').onclick = () => { clock.toggle(); timeline(clock.running ? 'Clock started.' : 'Clock paused.', 'clock'); };
@@ -304,8 +352,16 @@ $('fpsSel').onchange = e => { S.settings.fps = +e.target.value; saveSettings(); 
 $('poseOn').onchange = e => { S.settings.pose = e.target.checked; saveSettings(); };
 $('rulesetSel').onchange = e => { S.settings.ruleset = e.target.value; saveSettings(); if (confirm('Reload to apply the ' + e.target.value + ' ruleset?')) location.reload(); };
 $('rulesStatus').textContent = ruleset.name;
-const SIDE = ruleset.sideNames || { home: 'HOME', away: 'AWAY' }; // 1v1: PLAYER A / PLAYER B
-$('homeName').textContent = SIDE.home; $('awayName').textContent = SIDE.away;
+const SIDE = { ...(ruleset.sideNames || { home: 'HOME', away: 'AWAY' }) }; ruleset.sideNames = SIDE; // 1v1: player names
+function nameOfId(id) { return id === 'A' ? (S.settings.nameA || 'Player A') : id === 'B' ? (S.settings.nameB || 'Player B') : id; }
+function applyNames() {
+  if (ruleset.oneOnOne) { SIDE.home = (S.settings.nameA || 'PLAYER A').toUpperCase(); SIDE.away = (S.settings.nameB || 'PLAYER B').toUpperCase(); }
+  $('homeName').textContent = SIDE.home; $('awayName').textContent = SIDE.away; renderFouls?.();
+}
+$('nameA').value = S.settings.nameA || ''; $('nameB').value = S.settings.nameB || '';
+$('nameA').onchange = e => { S.settings.nameA = e.target.value.trim(); saveSettings(); applyNames(); timeline(`Player A is ${nameOfId('A')}.`); };
+$('nameB').onchange = e => { S.settings.nameB = e.target.value.trim(); saveSettings(); applyNames(); timeline(`Player B is ${nameOfId('B')}.`); };
+applyNames();
 document.querySelectorAll('[data-team]').forEach(b => { if (+b.dataset.points > 0 && b.textContent.includes(b.dataset.team.toUpperCase())) b.textContent = `${SIDE[b.dataset.team].replace('PLAYER ', '')} +${b.dataset.points}`; });
 $('ballSel').value = S.settings.ballColour || 'both'; $('ballSel').onchange = e => { S.settings.ballColour = e.target.value; saveSettings(); timeline('Ball colour set to ' + e.target.value + '.'); };
 $('detSel').onchange = e => { S.settings.detector = e.target.value; saveSettings(); location.reload(); };

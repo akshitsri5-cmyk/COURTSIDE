@@ -48,6 +48,15 @@ Start the dashboard and either scan its QR link with each phone or open `/camera
 
 **Game recording**: enter a location (or 📍 GPS) and press **● Record game**. Every camera angle is saved as `COURTSIDE_<match>_<YYYY-MM-DD_HH-MM>_<camera>.webm` plus `…_match-info.json` (match, date, start/end time, time zone, location, cameras, final score, score history, calls, timeline). Chrome/Edge write straight to a folder you choose; other browsers download the files when you stop.
 
+## Agents added for 1v1 (no court calibration required)
+
+* **Rim finder (automatic)** — every camera looks for the hoop by itself: a thin orange-red ring seen as a flat ellipse, high in the picture, with a bright backboard above and net texture below, seen in the same place repeatedly (moving balls, cones, red shirts are rejected). The COCO-trained models have no hoop class, so this is a dedicated detector, not a neural network. Black/white/grey rims are not found — then use **🏀 Mark rim** (click centre, then edge). Re-searches if the camera is bumped.
+* **Score agent (rim watcher)** — uses the found (or marked) rim. Every video frame (full camera rate, cheap frame differencing — not a neural network) it watches four small boxes: above the rim, the net, and beside the net. A ball arriving from above followed by net motion that clearly exceeds the side motion = basket; a rim bounce moves the side boxes instead. Two cameras agreeing within 0.7 s = high confidence. Points: from the shot analysis when the court is calibrated, otherwise the inside value with an *"It was a 2"* button. The scorer comes from possession; if unknown, a one-tap confirm appears. Never double-counts with the shot analysis (4 s guard).
+* **Names** — type Player A / Player B names next to the score; they appear on every camera, the scoreboard, fouls and the Apple Watch. *Swap A ↔ B* fixes a reversed assignment. Identity is by clothing (no face recognition: unreliable at court distance and a privacy concern).
+* **Foul agent without calibration** — in 1v1 the two players are built from the clothing identities; contact comes from the pose skeletons on screen, depth from player size and foot position (rejects "overlapping on screen but far apart"), impact from the change of motion. Two cameras seeing the contact are what make a call *flagged*/auto-called; one camera = NEEDS HUMAN REVIEW.
+
+Validated on synthetic plays and synthetic video only — not yet on real games.
+
 ## Phones as cameras (dashcam)
 
 * **Ball colour** (top bar): *any*, *white / grey* (e.g. Jordan outdoor balls) or *orange*. Colour candidates must be round, ball-sized relative to the players in view and moving; the detector's own ball detections work for any colour.

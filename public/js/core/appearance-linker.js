@@ -26,6 +26,8 @@ export class AppearanceLinker {
       }
     });
   }
+  /** Swap the two identities (operator: "A and B are the wrong way round"). */
+  swap(a = 'A', b = 'B') { const A = this.ids.find(x => x.name === a), B = this.ids.find(x => x.name === b); if (A) A.name = b; if (B) B.name = a; for (const [k, v] of this.bind) this.bind.set(k, v === a ? b : v === b ? a : v); }
   label(cam, trackId) { return this.bind.get(cam + ':' + trackId) || null; }
   reset() { this.ids = []; this.bind.clear(); }
 }
