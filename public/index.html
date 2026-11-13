@@ -4,7 +4,7 @@
 <meta name="google-site-verification" content="M6B4BxN2QNDVTCf5sQk-lp6E4IC_9IEhmegBlDSTSCQ"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>COURTSIDE — Multi-camera Basketball Ref</title><link rel="stylesheet" href="/css/app.css"></head>
 <body>
-<header><div class="brand">COURT<span>SIDE</span></div><div class="tag" id="matchTag">MULTI-CAMERA BASKETBALL REFEREE ASSISTANT</div></header>
+<header><div class="brand">COURT<span>SIDE</span></div><div class="header-tools"><div class="tag" id="matchTag">MULTI-CAMERA BASKETBALL REFEREE ASSISTANT</div><button class="theme-toggle" id="themeToggle" type="button" aria-label="Switch to light theme" title="Switch theme"><span id="themeIcon" aria-hidden="true">☀</span><span id="themeLabel">Light mode</span></button></div></header>
 <main>
 <div class="tag">ONE COURT · MULTIPLE ANGLES · ONE GAME SESSION</div><h1>See more of<br>the game.</h1>
 <p class="intro">This device is the referee station. Pair phones by QR code, calibrate each camera to the court, then start the game. COURTSIDE tracks players and the ball, flags possible violations with video evidence, and leaves every decision to you.</p>
@@ -145,5 +145,27 @@
  <div class="controls" style="padding:8px 0"><select id="histCam" style="width:auto"></select></div>
  <video id="histVideo" controls playsinline style="width:100%;background:#000;border-radius:10px"></video></div>
 </div></div>
+<script>
+(()=> {
+  const key='courtside-theme';
+  const root=document.documentElement;
+  const button=document.getElementById('themeToggle');
+  const icon=document.getElementById('themeIcon');
+  const label=document.getElementById('themeLabel');
+  const saved=localStorage.getItem(key);
+  const initial=saved==='light'?'light':'dark';
+  function apply(theme){
+    root.dataset.theme=theme;
+    const light=theme==='light';
+    icon.textContent=light?'☾':'☀';
+    label.textContent=light?'Dark mode':'Light mode';
+    button.setAttribute('aria-label',light?'Switch to dark theme':'Switch to light theme');
+    button.title=light?'Switch to dark theme':'Switch to light theme';
+    localStorage.setItem(key,theme);
+  }
+  apply(initial);
+  button.addEventListener('click',()=>apply(root.dataset.theme==='dark'?'light':'dark'));
+})();
+</script>
 <script type="module" src="/js/app/dashboard.js"></script>
 </body></html>
