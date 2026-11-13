@@ -29,3 +29,38 @@ select,.text-input{background:#0c1312;color:var(--white);border:1px solid var(--
 .camera-page .cam-main{max-width:560px}.camera-page video{width:100%;border-radius:10px;background:#000;margin:10px 0}.cam-stats{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:12px;color:var(--muted)}.camera-page label{display:block;margin-top:8px}
 @media(max-width:1000px){.layout,.lower{grid-template-columns:1fr}.modal-box{grid-template-columns:1fr}}
 @media(max-width:640px){.camera-grid{grid-template-columns:1fr}.pair-grid{grid-template-columns:1fr}.qr{margin:auto}}
+
+/* COURTSIDE light theme */
+:root{color-scheme:dark}
+:root[data-theme="light"]{color-scheme:light;--bg:#f3f6f2;--panel:#fff;--line:#d9e2dc;--muted:#607168;--white:#17221c;--lime:#6c9f16;--orange:#c66a25;--red:#c43f3f;--blue:#286b9c;--amber:#94600a}
+:root[data-theme="light"] body{background:radial-gradient(circle at 80% 0,#e1eee4 0,transparent 38%),var(--bg);color:var(--white)}
+:root[data-theme="light"] .panel{background:linear-gradient(145deg,#fff,#f7faf7)}
+:root[data-theme="light"] button{background:#edf2ee;color:var(--white);border-color:var(--line)}
+:root[data-theme="light"] button.primary{background:#c7ed83;color:#17220f;border-color:#a6d45a}
+:root[data-theme="light"] button.secondary{background:#e8f1f6;border-color:#bfd3df}
+:root[data-theme="light"] button.danger{background:#faeeee;border-color:#e5c4c4}
+:root[data-theme="light"] select,:root[data-theme="light"] .text-input,:root[data-theme="light"] .big-input{background:#fff;color:var(--white);border-color:var(--line)}
+:root[data-theme="light"] .camera-card{background:#f1f5f2}
+:root[data-theme="light"] .camera-state{background:#e7eee9;color:#53665b}
+:root[data-theme="light"] .camera-state.live{background:#e5f3d8;color:#426b17}
+:root[data-theme="light"] .camera-state.bad{background:#fae6e6;color:#a72d2d}
+:root[data-theme="light"] .camera-state.warn{background:#f8efd9;color:#8b6417}
+:root[data-theme="light"] .stage,:root[data-theme="light"] .calib-stage{background:#e5ebe7}
+:root[data-theme="light"] .pending-item{background:#fff8e9;border-color:#e8d7aa}
+:root[data-theme="light"] .alert:hover,:root[data-theme="light"] .alert.sel,:root[data-theme="light"] .kp:hover{background:#edf3ee}
+:root[data-theme="light"] .badge.flagged{background:#fae6e6;color:#a72d2d}
+:root[data-theme="light"] .badge.needs_review{background:#f8efd9;color:#8b6417}
+:root[data-theme="light"] .badge.confirmed{background:#e5f3d8;color:#426b17}
+:root[data-theme="light"] .badge.rejected{background:#eceeed;color:#65736b}
+:root[data-theme="light"] .badge.review{background:#e5f0f8;color:#286b9c}
+:root[data-theme="light"] #courtMap{background:#e8efea}
+:root[data-theme="light"] .notice{background:#fff8e9;border-color:#e8d7aa;color:#665323}
+:root[data-theme="light"] .modal{background:rgba(20,30,24,.55)}
+:root[data-theme="light"] .modal-box{background:#fff}
+:root[data-theme="light"] .pill{background:#edf2ee}
+:root[data-theme="light"] .pill.ok,:root[data-theme="light"] .kp.active{background:#e5f3d8;color:#426b17}
+.header-tools{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.theme-toggle{display:inline-flex;align-items:center;gap:8px;padding:7px 11px;border-radius:999px;font-size:12px}
+.theme-toggle span:first-child{font-size:16px;line-height:1}
+:root[data-theme="light"] .theme-toggle{background:#fff}
+@media(max-width:640px){.header-tools{width:100%;justify-content:space-between}}
