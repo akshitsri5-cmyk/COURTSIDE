@@ -112,3 +112,18 @@ h1{white-space:nowrap;font-size:clamp(27px,3.35vw,46px);letter-spacing:-.04em;ov
 :root[data-theme="light"] .settings-menu summary{background:#edf2ee;color:var(--white)}
 :root[data-theme="light"] .settings-content{box-shadow:0 12px 30px rgba(30,50,35,.12)}
 @media(max-width:640px){.header-tools{width:100%;justify-content:space-between}.settings-content{position:static;min-width:0;max-width:100%;border-top:1px solid var(--line);border-radius:0 0 12px 12px}.settings-menu{width:100%}.settings-menu summary{width:100%;justify-content:center}}
+
+
+/* Narrower camera column; feeds stack vertically as cameras are added */
+.layout{grid-template-columns:minmax(0,1.12fr) minmax(360px,1fr);align-items:start;gap:14px}
+.camera-grid{grid-template-columns:minmax(0,1fr);gap:10px}
+.camera-grid .stage{aspect-ratio:16/9;max-height:340px}
+.side{gap:12px}
+.side>.panel.pad{padding:13px}
+.side .scoreline{gap:5px}
+.side .points{font-size:38px}
+.side .team-controls{gap:5px;margin-top:7px}
+.side .team-controls button{padding:6px 2px;font-size:10px}
+.side .pair-panel-top{margin-bottom:0}
+@media(max-width:1000px){.layout{grid-template-columns:1fr}.camera-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:640px){.camera-grid{grid-template-columns:1fr}}
