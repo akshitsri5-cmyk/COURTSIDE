@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta name="google-site-verification" content="M6B4BxN2QNDVTCf5sQk-lp6E4IC_9IEhmegBlDSTSCQ"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>COURTSIDE — Multi-camera Basketball Ref</title><link rel="stylesheet" href="/css/app.css?v=layout-5"></head>
+<title>COURTSIDE — Multi-camera Basketball Ref</title><link rel="stylesheet" href="/css/app.css?v=layout-6"></head>
 <body>
 <header><div class="brand">COURT<span>SIDE</span></div><div class="header-tools"><div class="tag" id="matchTag">MULTI-CAMERA BASKETBALL REFEREE ASSISTANT</div><button class="theme-toggle" id="themeToggle" type="button" aria-label="Switch to light theme" title="Switch theme"><span id="themeIcon" aria-hidden="true">☀</span><span id="themeLabel">Light mode</span></button></div></header>
 <main>
@@ -45,6 +45,16 @@
   <div class="controls" style="padding:0 14px 14px"><button class="sm" id="flashSync">Sync check (flash)</button><span class="muted small" id="syncInfo">Timestamps: WebRTC capture/receive time, server-clock aligned.</span></div>
  </section>
  <aside class="side">
+  <section class="panel pad">
+   <div class="row-between"><strong class="tag">LIVE SCORE</strong><label class="tag"><input type="checkbox" id="autoScore" checked> AUTO</label></div>
+   <div class="scoreline"><div><div class="team" id="homeName">HOME</div><div class="points" id="homeScore">00</div></div><div class="versus">VS</div><div><div class="team" id="awayName">AWAY</div><div class="points" id="awayScore">00</div></div></div>
+   <div class="team-controls"><button data-team="home" data-points="1">HOME +1</button><button data-team="home" data-points="2">+2</button><button data-team="home" data-points="3">+3</button><button data-team="home" data-points="-1">−1</button></div>
+   <div class="team-controls"><button data-team="away" data-points="1">AWAY +1</button><button data-team="away" data-points="2">+2</button><button data-team="away" data-points="3">+3</button><button data-team="away" data-points="-1">−1</button></div>
+   <div class="team" id="foulLine" style="text-align:center;margin-top:6px">TEAM FOULS · HOME 0 · AWAY 0</div>
+   <div class="team-controls"><input id="nameA" class="text-input" placeholder="Player A name" maxlength="20"><input id="nameB" class="text-input" placeholder="Player B name" maxlength="20"></div>
+   <div class="team-controls"><button id="undoScore">Undo last</button><button id="swapTeams">Swap A ↔ B</button></div>
+   <div class="pending" id="pendingScores"></div>
+  </section>
   <section class="panel pad pair-panel-top" id="pair-panel">
  <div class="row-between"><strong class="tag">PAIR A PHONE CAMERA</strong><button class="sm" id="rotateCode">New code</button></div>
  <div class="pair-grid" style="margin-top:10px">
@@ -64,16 +74,6 @@
   <div class="message" id="joinMsg"></div>
  </div>
 </section>
-  <section class="panel pad">
-   <div class="row-between"><strong class="tag">LIVE SCORE</strong><label class="tag"><input type="checkbox" id="autoScore" checked> AUTO</label></div>
-   <div class="scoreline"><div><div class="team" id="homeName">HOME</div><div class="points" id="homeScore">00</div></div><div class="versus">VS</div><div><div class="team" id="awayName">AWAY</div><div class="points" id="awayScore">00</div></div></div>
-   <div class="team-controls"><button data-team="home" data-points="1">HOME +1</button><button data-team="home" data-points="2">+2</button><button data-team="home" data-points="3">+3</button><button data-team="home" data-points="-1">−1</button></div>
-   <div class="team-controls"><button data-team="away" data-points="1">AWAY +1</button><button data-team="away" data-points="2">+2</button><button data-team="away" data-points="3">+3</button><button data-team="away" data-points="-1">−1</button></div>
-   <div class="team" id="foulLine" style="text-align:center;margin-top:6px">TEAM FOULS · HOME 0 · AWAY 0</div>
-   <div class="team-controls"><input id="nameA" class="text-input" placeholder="Player A name" maxlength="20"><input id="nameB" class="text-input" placeholder="Player B name" maxlength="20"></div>
-   <div class="team-controls"><button id="undoScore">Undo last</button><button id="swapTeams">Swap A ↔ B</button></div>
-   <div class="pending" id="pendingScores"></div>
-  </section>
   <section class="panel pad clock">
    <div class="tag">GAME CLOCK · <span id="period">Q1</span></div><div class="time" id="clock">10:00</div><div class="shot" id="shotClock">24</div>
    <div class="clock-actions"><button class="primary" id="clockToggle">Start</button><button id="resetShot">Shot 24</button><button id="shot14">14</button><button id="nextPeriod">Next period</button><button id="resetClock">Reset game</button></div>
