@@ -153,3 +153,7 @@ body.game-view-open{overflow:hidden}
  #gameViewScoreSlot,#gameViewPairSlot{grid-template-columns:1fr}
  #gameViewLiveSlot .camera-grid{grid-template-columns:1fr}
 }
+
+
+/* Keep the camera join code field compact */
+#joinCode{max-width:190px!important;padding:8px;font-size:18px;letter-spacing:.12em}
