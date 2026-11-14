@@ -2,13 +2,13 @@
 <html lang="en">
 <head>
 <meta name="google-site-verification" content="M6B4BxN2QNDVTCf5sQk-lp6E4IC_9IEhmegBlDSTSCQ"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>COURTSIDE — Multi-camera Basketball Ref</title><link rel="stylesheet" href="/css/app.css?v=theme-2"></head>
+<title>COURTSIDE — Multi-camera Basketball Ref</title><link rel="stylesheet" href="/css/app.css?v=theme-3"></head>
 <body>
 <header><div class="brand">COURT<span>SIDE</span></div><div class="tag" id="matchTag">MULTI-CAMERA BASKETBALL REFEREE ASSISTANT</div></header>
 <main>
 <div class="tag">ONE COURT · MULTIPLE ANGLES · ONE GAME SESSION</div><h1>See more of<br>the game.</h1>
 <p class="intro">This device is the referee station. Pair phones by QR code, calibrate each camera to the court, then start the game. COURTSIDE tracks players and the ball, flags possible violations with video evidence, and leaves every decision to you.</p>
-<div class="top-actions"><button class="theme-toggle" id="themeToggle" type="button" aria-label="Switch to light theme" title="Switch theme"><span id="themeIcon" aria-hidden="true">☀</span><span id="themeLabel">Light mode</span></button>
+<div class="top-actions"><button class="secondary" id="openGameView" type="button">▦ Game view</button><button class="theme-toggle" id="themeToggle" type="button" aria-label="Switch to light theme" title="Switch theme"><span id="themeIcon" aria-hidden="true">☀</span><span id="themeLabel">Light mode</span></button>
   <input id="matchName" class="text-input" style="max-width:220px" placeholder="Match name" value="">
   <button class="primary" id="addLocal">＋ Camera on this device</button>
   <select id="localCamSel" style="max-width:200px"><option value="">Default camera</option></select>
@@ -125,7 +125,59 @@
 </section>
 <div class="notice"><b>Honest capability limits:</b> detections come from general-purpose models (YOLO11n / MediaPipe Pose) that were <b>not trained on basketball footage</b>; rule decisions are transparent heuristics over tracked movement, validated only on synthetic scenes so far. Evidence scores are uncalibrated. Every alert is a suggestion for the human referee — <b>NEEDS HUMAN REVIEW</b> means the evidence was insufficient. Ask everyone for permission before filming.</div>
 <div class="fineprint">COURTSIDE · Video streams peer-to-peer (WebRTC) to this dashboard and is analysed on this device · Keep this page open during the game.</div>
-</main>
+
+<div class="game-view-overlay" id="gameViewOverlay" aria-hidden="true">
+ <div class="game-view-window" role="dialog" aria-modal="true" aria-labelledby="gameViewTitle">
+  <div class="game-view-header"><div><div class="tag">COURTSIDE · LIVE DASHBOARD</div><h2 id="gameViewTitle">Game view</h2></div><button id="closeGameView" type="button" aria-label="Close game view">✕ Close</button></div>
+  <div class="game-view-grid">
+   <section class="game-view-block game-view-live"><div class="game-view-label">LIVE FEED</div><div id="gameViewLiveSlot"></div></section>
+   <section class="game-view-block game-view-score"><div class="game-view-label">GAME SCORE &amp; TIMER</div><div id="gameViewScoreSlot"></div></section>
+   <section class="game-view-block game-view-pair"><div class="game-view-label">JOIN THIS GAME</div><div id="gameViewPairSlot"></div></section>
+   <section class="game-view-block game-view-history"><div class="game-view-label">PREVIOUS GAMES</div><div id="gameViewHistorySlot"></div></section>
+  </div>
+ </div>
+</div>
+<script>
+(function(){
+ const ids=['camera','score','clock','pair','join','history'];
+ let anchors={};
+ function setup(){
+  const nodes={
+   camera:document.querySelector('.layout > section.panel'),
+   score:document.querySelector('.layout > .side > section.panel'),
+   clock:document.querySelector('.layout > .side > section.panel.clock'),
+   pair:document.getElementById('pair-panel'),
+   join:document.getElementById('join-panel'),
+   history:document.getElementById('history-panel')
+  };
+  const slots={
+   camera:document.getElementById('gameViewLiveSlot'),
+   score:document.getElementById('gameViewScoreSlot'),
+   clock:document.getElementById('gameViewScoreSlot'),
+   pair:document.getElementById('gameViewPairSlot'),
+   join:document.getElementById('gameViewPairSlot'),
+   history:document.getElementById('gameViewHistorySlot')
+  };
+  ids.forEach(id=>{if(nodes[id]){const marker=document.createComment('COURTSIDE '+id+' position');nodes[id].parentNode.insertBefore(marker,nodes[id]);anchors[id]=marker;}});
+  function moveIn(){
+   ids.forEach(id=>{if(nodes[id]&&slots[id])slots[id].appendChild(nodes[id]);});
+  }
+  function moveOut(){
+   ids.slice().reverse().forEach(id=>{if(nodes[id]&&anchors[id]&&anchors[id].parentNode)anchors[id].parentNode.insertBefore(nodes[id],anchors[id].nextSibling);});
+  }
+  const overlay=document.getElementById('gameViewOverlay');
+  const open=document.getElementById('openGameView');
+  const close=document.getElementById('closeGameView');
+  function show(){moveIn();overlay.classList.add('is-open');overlay.setAttribute('aria-hidden','false');document.body.classList.add('game-view-open');close.focus();}
+  function hide(){overlay.classList.remove('is-open');overlay.setAttribute('aria-hidden','true');document.body.classList.remove('game-view-open');moveOut();open.focus();}
+  open.addEventListener('click',show);
+  close.addEventListener('click',hide);
+  overlay.addEventListener('click',e=>{if(e.target===overlay)hide();});
+  document.addEventListener('keydown',e=>{if(e.key==='Escape'&&overlay.classList.contains('is-open'))hide();});
+ }
+ if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',setup,{once:true});else setup();
+})();
+</script></main>
 <div class="modal" id="calibModal" hidden><div class="modal-box">
  <div class="calib-stage"><canvas id="calibCanvas"></canvas></div>
  <div class="calib-side">
