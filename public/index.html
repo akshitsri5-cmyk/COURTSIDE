@@ -7,7 +7,7 @@
 <header><div class="brand">COURT<span>SIDE</span></div><div class="tag" id="matchTag">MULTI-CAMERA BASKETBALL REFEREE ASSISTANT</div></header>
 <main>
 <div class="tag">ONE COURT · MULTIPLE ANGLES · ONE GAME SESSION</div><h1>See more of<br>the game.</h1>
-<p class="intro">This device is the referee station. Pair phones by QR code, calibrate each camera to the court, then start the game. COURTSIDE tracks players and the ball, flags possible violations with video evidence, and leaves every decision to you.</p>
+<p class="intro">Pair phones, calibrate cameras and manage the game from one referee station. COURTSIDE tracks players and the ball while leaving every decision to the referee.</p>
 <div class="top-actions"><button class="theme-toggle" id="themeToggle" type="button" aria-label="Switch to light theme" title="Switch theme"><span id="themeIcon" aria-hidden="true">☀</span><span id="themeLabel">Light mode</span></button>
   <input id="matchName" class="text-input" style="max-width:220px" placeholder="Match name" value="">
   <button class="primary" id="addLocal">＋ Camera on this device</button>
@@ -40,6 +40,17 @@
   <div class="controls" style="padding:0 14px 14px"><button class="sm" id="flashSync">Sync check (flash)</button><span class="muted small" id="syncInfo">Timestamps: WebRTC capture/receive time, server-clock aligned.</span></div>
  </section>
  <aside class="side">
+  <section class="panel pad" id="pair-panel" style="margin-top:17px">
+ <div class="row-between"><strong class="tag">PAIR A PHONE CAMERA</strong><button class="sm" id="rotateCode">New code</button></div>
+ <div class="pair-grid" style="margin-top:10px">
+  <div class="qr" id="qr"><div class="placeholder">Connecting…</div></div>
+  <div><div class="tag">SCAN WITH THE PHONE CAMERA, OR OPEN THE ADDRESS AND ENTER THE CODE</div><div class="code" id="pairCode">——————</div>
+   <div class="url" id="pairUrl"></div>
+   <label class="tag" style="display:block;margin-top:8px">ADDRESS PHONES USE <select id="baseSel" style="width:auto"></select></label>
+   <div class="message" id="hostMessage"></div>
+   <p class="muted small">Scan this code to connect a phone camera. Camera access requires an HTTPS connection.</p></div>
+ </div>
+</section>
   <section class="panel pad">
    <div class="row-between"><strong class="tag">LIVE SCORE</strong><label class="tag"><input type="checkbox" id="autoScore" checked> AUTO</label></div>
    <div class="scoreline"><div><div class="team" id="homeName">HOME</div><div class="points" id="homeScore">00</div></div><div class="versus">VS</div><div><div class="team" id="awayName">AWAY</div><div class="points" id="awayScore">00</div></div></div>
@@ -95,17 +106,7 @@
  </div>
  <div class="message" id="joinMsg"></div>
 </section>
-<section class="panel pad" id="pair-panel" style="margin-top:17px">
- <div class="row-between"><strong class="tag">PAIR A PHONE CAMERA</strong><button class="sm" id="rotateCode">New code</button></div>
- <div class="pair-grid" style="margin-top:10px">
-  <div class="qr" id="qr"><div class="placeholder">Connecting…</div></div>
-  <div><div class="tag">SCAN WITH THE PHONE CAMERA, OR OPEN THE ADDRESS AND ENTER THE CODE</div><div class="code" id="pairCode">——————</div>
-   <div class="url" id="pairUrl"></div>
-   <label class="tag" style="display:block;margin-top:8px">ADDRESS PHONES USE <select id="baseSel" style="width:auto"></select></label>
-   <div class="message" id="hostMessage"></div>
-   <p class="muted small">Phones must open the <b>https://</b> address (camera access requires HTTPS). With the built-in self-signed certificate each phone must accept the browser warning once. See README → HTTPS.</p></div>
- </div>
-</section>
+
 <section class="panel" id="history-panel" style="margin-top:17px">
  <div class="panel-head"><strong>PREVIOUS GAMES</strong><span class="live" id="historyUsage">—</span></div>
  <div class="alert-list" id="historyList"></div>
