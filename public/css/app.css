@@ -64,3 +64,34 @@ select,.text-input{background:#0c1312;color:var(--white);border:1px solid var(--
 .theme-toggle span:first-child{font-size:16px;line-height:1}
 :root[data-theme="light"] .theme-toggle{background:#fff}
 @media(max-width:640px){.header-tools{width:100%;justify-content:space-between}}
+
+
+/* Four-block pop-up game dashboard */
+.game-view-overlay{position:fixed;inset:0;z-index:1000;background:rgba(3,8,6,.82);backdrop-filter:blur(7px);display:none;align-items:center;justify-content:center;padding:18px}
+.game-view-overlay.is-open{display:flex}
+body.game-view-open{overflow:hidden}
+.game-view-window{width:min(1500px,98vw);height:min(920px,94vh);overflow:auto;background:var(--bg);border:1px solid var(--line);border-radius:18px;padding:18px;box-shadow:0 24px 80px rgba(0,0,0,.45)}
+.game-view-header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}
+.game-view-header h2{font-size:22px;margin:4px 0 0}
+.game-view-grid{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(320px,.9fr);grid-template-rows:minmax(250px,1fr) minmax(220px,.8fr);gap:14px;min-height:calc(100% - 62px)}
+.game-view-block{min-width:0;min-height:0;overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:12px}
+.game-view-label{font-size:11px;font-weight:850;letter-spacing:.12em;color:var(--muted);margin-bottom:9px}
+.game-view-live{grid-column:1;grid-row:1}
+.game-view-score{grid-column:2;grid-row:1}
+.game-view-pair{grid-column:1;grid-row:2}
+.game-view-history{grid-column:2;grid-row:2}
+#gameViewLiveSlot>.panel{border:0;background:transparent;box-shadow:none}
+#gameViewLiveSlot .camera-grid{grid-template-columns:repeat(2,minmax(0,1fr));padding:6px}
+#gameViewLiveSlot .stage{aspect-ratio:16/9}
+#gameViewScoreSlot{display:grid;grid-template-columns:1fr;gap:9px}
+#gameViewScoreSlot>.panel{padding:10px;margin:0}
+#gameViewScoreSlot .points{font-size:36px}
+#gameViewScoreSlot .time{font-size:38px}
+#gameViewScoreSlot .clock-actions{gap:5px}
+#gameViewPairSlot{display:grid;grid-template-columns:1fr;gap:9px}
+#gameViewPairSlot>.panel{margin:0!important;padding:10px}
+#gameViewPairSlot .pair-grid{grid-template-columns:112px minmax(0,1fr);gap:12px}
+#gameViewPairSlot .qr{width:112px;height:112px}
+#gameViewHistorySlot>.panel{margin:0!important}
+#gameViewHistorySlot .alert-list{max-height:250px;overflow:auto}
+@media(max-width:850px){.game-view-overlay{padding:6px}.game-view-window{width:100%;height:98vh;padding:10px}.game-view-grid{grid-template-columns:1fr;grid-template-rows:auto}.game-view-live,.game-view-score,.game-view-pair,.game-view-history{grid-column:1;grid-row:auto}.game-view-block{min-height:200px}#gameViewLiveSlot .camera-grid{grid-template-columns:1fr}}
