@@ -64,3 +64,12 @@ select,.text-input{background:#0c1312;color:var(--white);border:1px solid var(--
 .theme-toggle span:first-child{font-size:16px;line-height:1}
 :root[data-theme="light"] .theme-toggle{background:#fff}
 @media(max-width:640px){.header-tools{width:100%;justify-content:space-between}}
+
+
+/* Presentation-friendly dashboard: keep phone pairing visible beside the live court */
+.pair-panel-top{margin:0 0 15px}
+#pair-panel .pair-grid{grid-template-columns:132px minmax(0,1fr);gap:12px;align-items:center}
+#pair-panel .qr{width:132px;height:132px;padding:5px}
+#pair-panel .code{font-size:27px;letter-spacing:.12em}
+#pair-panel .url{font-size:10px}
+@media(max-width:640px){#pair-panel .pair-grid{grid-template-columns:1fr}#pair-panel .qr{margin:auto}}
