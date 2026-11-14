@@ -73,3 +73,23 @@ select,.text-input{background:#0c1312;color:var(--white);border:1px solid var(--
 #pair-panel .code{font-size:27px;letter-spacing:.12em}
 #pair-panel .url{font-size:10px}
 @media(max-width:640px){#pair-panel .pair-grid{grid-template-columns:1fr}#pair-panel .qr{margin:auto}}
+
+
+/* Compact presentation layout: single-line headline, visible pairing and cleaner controls */
+h1{white-space:nowrap;font-size:clamp(27px,3.35vw,46px);letter-spacing:-.04em;overflow:visible}
+.top-actions{gap:7px;margin:10px 0 15px}
+.top-actions button{padding:7px 10px;font-size:12px}
+.top-actions select,.top-actions .text-input{padding:7px 8px;font-size:12px}
+.top-actions .tag{letter-spacing:.08em;padding:5px 7px;border:1px solid var(--line);border-radius:8px;white-space:nowrap}
+#pair-panel{padding:13px}
+#pair-panel .pair-grid{grid-template-columns:112px minmax(0,1fr);gap:10px}
+#pair-panel .qr{width:112px;height:112px}
+#pair-panel .code{font-size:25px;letter-spacing:.1em}
+#pair-panel .tag{font-size:10px;letter-spacing:.08em}
+#pair-panel .muted.small{margin:6px 0 0}
+.join-inline{border-top:1px solid var(--line);margin-top:11px;padding-top:10px}
+.join-inline-controls{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:7px;margin-top:7px}
+.join-inline .big-input{min-width:0;font-size:19px;padding:9px;letter-spacing:.2em}
+.join-inline button{padding:8px 12px}
+@media(max-width:1050px){h1{white-space:normal}}
+@media(max-width:640px){#pair-panel .pair-grid{grid-template-columns:1fr}#pair-panel .qr{margin:auto}.join-inline-controls{grid-template-columns:1fr}}
