@@ -161,3 +161,15 @@ body.game-view-open{overflow:hidden}
 
 /* In Game View, keep the enter-code panel only as tall as its contents */
 #gameViewPairSlot>#join-panel{height:fit-content;align-self:start}
+
+
+/* Make the camera-code area narrower horizontally in Game View */
+#gameViewPairSlot{grid-template-columns:minmax(0,1.2fr) minmax(280px,.8fr)!important;justify-content:start}
+#gameViewPairSlot>#join-panel{width:100%;max-width:440px;justify-self:start}
+#gameViewPairSlot>#join-panel .row-between{display:block}
+#gameViewPairSlot>#join-panel .row-between .live{display:block;margin-top:4px}
+#gameViewPairSlot>#join-panel>div[style*="display:flex"]{gap:6px!important;flex-wrap:nowrap!important}
+#gameViewPairSlot #joinCode{width:170px!important;max-width:170px!important;flex:0 0 170px;padding:7px;font-size:16px}
+#gameViewPairSlot #joinBtn{white-space:nowrap}
+@media(max-width:850px){#gameViewPairSlot{grid-template-columns:1fr 1.3fr!important}#gameViewPairSlot>#join-panel{max-width:none}}
+@media(max-width:560px){#gameViewPairSlot{grid-template-columns:1fr!important}#gameViewPairSlot>#join-panel #joinCode{width:100%!important;max-width:100%!important;flex:1 1 auto}}
