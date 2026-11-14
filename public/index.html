@@ -2,11 +2,11 @@
 <html lang="en">
 <head>
 <meta name="google-site-verification" content="M6B4BxN2QNDVTCf5sQk-lp6E4IC_9IEhmegBlDSTSCQ"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>COURTSIDE — Multi-camera Basketball Ref</title><link rel="stylesheet" href="/css/app.css?v=theme-3"></head>
+<title>COURTSIDE — Multi-camera Basketball Ref</title><link rel="stylesheet" href="/css/app.css?v=layout-4"></head>
 <body>
 <header><div class="brand">COURT<span>SIDE</span></div><div class="tag" id="matchTag">MULTI-CAMERA BASKETBALL REFEREE ASSISTANT</div></header>
 <main>
-<div class="tag">ONE COURT · MULTIPLE ANGLES · ONE GAME SESSION</div><h1>See more of<br>the game.</h1>
+<div class="tag">ONE COURT · MULTIPLE ANGLES · ONE GAME SESSION</div><h1>See more of the game.</h1>
 <p class="intro">Pair phones, calibrate cameras and manage the game from one referee station. COURTSIDE tracks players and the ball while leaving every decision to the referee.</p>
 <div class="top-actions"><button class="theme-toggle" id="themeToggle" type="button" aria-label="Switch to light theme" title="Switch theme"><span id="themeIcon" aria-hidden="true">☀</span><span id="themeLabel">Light mode</span></button>
   <input id="matchName" class="text-input" style="max-width:220px" placeholder="Match name" value="">
@@ -48,7 +48,15 @@
    <div class="url" id="pairUrl"></div>
    <label class="tag" style="display:block;margin-top:8px">ADDRESS PHONES USE <select id="baseSel" style="width:auto"></select></label>
    <div class="message" id="hostMessage"></div>
-   <p class="muted small">Scan this code to connect a phone camera. Camera access requires an HTTPS connection.</p></div>
+   <p class="muted small">Scan to connect a phone camera. HTTPS required.</p></div>
+ </div>
+ <div class="join-inline" id="join-panel">
+  <div class="tag">OR ENTER THE 6-DIGIT CODE</div>
+  <div class="join-inline-controls">
+   <input id="joinCode" class="big-input" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="6-digit code" style="margin:0">
+   <button class="primary" id="joinBtn">Join</button>
+  </div>
+  <div class="message" id="joinMsg"></div>
  </div>
 </section>
   <section class="panel pad">
@@ -98,15 +106,6 @@
   <div class="timeline" id="timeline"></div>
  </section>
 </div>
-<section class="panel pad" id="join-panel" style="margin-top:17px">
- <div class="row-between"><strong class="tag">② USE THIS PHONE AS A CAMERA</strong><span class="live">ENTER THE CODE SHOWN ON THE REFEREE DEVICE</span></div>
- <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px">
-  <input id="joinCode" class="big-input" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="6-digit code" style="max-width:260px;margin:0">
-  <button class="primary" id="joinBtn">Join as camera</button>
- </div>
- <div class="message" id="joinMsg"></div>
-</section>
-
 <section class="panel" id="history-panel" style="margin-top:17px">
  <div class="panel-head"><strong>PREVIOUS GAMES</strong><span class="live" id="historyUsage">—</span></div>
  <div class="alert-list" id="historyList"></div>
