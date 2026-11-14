@@ -93,3 +93,22 @@ h1{white-space:nowrap;font-size:clamp(27px,3.35vw,46px);letter-spacing:-.04em;ov
 .join-inline button{padding:8px 12px}
 @media(max-width:1050px){h1{white-space:normal}}
 @media(max-width:640px){#pair-panel .pair-grid{grid-template-columns:1fr}#pair-panel .qr{margin:auto}.join-inline-controls{grid-template-columns:1fr}}
+
+
+/* Cleaner header and expandable AI settings */
+.header-tools{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.header-tools .theme-toggle{margin-left:4px}
+.top-actions{align-items:center}
+.settings-menu{position:relative;flex:0 1 auto}
+.settings-menu summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:9px;padding:8px 12px;border:1px solid var(--line);border-radius:10px;background:#202c28;color:var(--white);font-size:12px;font-weight:750;white-space:nowrap}
+.settings-menu summary::-webkit-details-marker{display:none}
+.settings-menu[open] summary{border-color:var(--lime);border-bottom-left-radius:0;border-bottom-right-radius:0}
+.settings-icon{font-size:15px}
+.settings-chevron{color:var(--muted);margin-left:4px}
+.settings-content{position:absolute;z-index:20;top:100%;left:0;min-width:290px;max-width:min(420px,90vw);padding:12px;display:grid;grid-template-columns:1fr 1fr;gap:10px;background:var(--panel);border:1px solid var(--line);border-top:0;border-radius:0 12px 12px 12px;box-shadow:0 12px 30px rgba(0,0,0,.28)}
+.settings-content .tag{display:flex;align-items:center;gap:6px;white-space:nowrap}
+.settings-content .setting-select{display:flex;flex-direction:column;gap:5px;font-size:10px;color:var(--muted);letter-spacing:.06em}
+.settings-content select{font-size:11px;padding:7px;min-width:0}
+:root[data-theme="light"] .settings-menu summary{background:#edf2ee;color:var(--white)}
+:root[data-theme="light"] .settings-content{box-shadow:0 12px 30px rgba(30,50,35,.12)}
+@media(max-width:640px){.header-tools{width:100%;justify-content:space-between}.settings-content{position:static;min-width:0;max-width:100%;border-top:1px solid var(--line);border-radius:0 0 12px 12px}.settings-menu{width:100%}.settings-menu summary{width:100%;justify-content:center}}
