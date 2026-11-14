@@ -157,3 +157,7 @@ body.game-view-open{overflow:hidden}
 
 /* Keep the camera join code field compact */
 #joinCode{max-width:190px!important;padding:8px;font-size:18px;letter-spacing:.12em}
+
+
+/* In Game View, keep the enter-code panel only as tall as its contents */
+#gameViewPairSlot>#join-panel{height:fit-content;align-self:start}
