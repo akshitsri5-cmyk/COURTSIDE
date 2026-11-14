@@ -21,7 +21,7 @@ const VENDOR = {
   '/vendor/tfjs/': 'node_modules/@tensorflow/tfjs/dist/',
   '/vendor/coco-ssd/': 'node_modules/@tensorflow-models/coco-ssd/dist/',
 };
-const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.mjs': 'text/javascript', '.cjs': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.wasm': 'application/wasm', '.svg': 'image/svg+xml', '.png': 'image/png', '.onnx': 'application/octet-stream', '.task': 'application/octet-stream', '.tflite': 'application/octet-stream', '.bin': 'application/octet-stream', '.webm': 'video/webm', '.ico': 'image/x-icon' };
+const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.mjs': 'text/javascript', '.cjs': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.wasm': 'application/wasm', '.svg': 'image/svg+xml', '.txt': 'text/plain; charset=utf-8', '.xml': 'application/xml', '.png': 'image/png', '.onnx': 'application/octet-stream', '.task': 'application/octet-stream', '.tflite': 'application/octet-stream', '.bin': 'application/octet-stream', '.webm': 'video/webm', '.ico': 'image/x-icon' };
 
 export function lanAddresses() { return Object.values(os.networkInterfaces()).flat().filter(i => i && i.family === 'IPv4' && !i.internal).map(i => i.address); }
 
